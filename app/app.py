@@ -151,12 +151,10 @@ class EventListener:
             )
             return
 
-        correlation_id = str(uuid.uuid4())  # UUID for debugging
-
         # Build metadata request XML
         xml = self._generate_get_metadata_request_xml(
             datetime.now().isoformat(),
-            correlation_id,
+            media_id, # Correlation_id is the media_id
             media_id,
         )
 
