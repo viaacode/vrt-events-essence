@@ -17,4 +17,4 @@ app:
       essence_unlinked_routing_key: !ENV ${RABBITMQ_ESSENCE_UNLINKED_ROUTING_KEY}
       object_deleted_routing_key: !ENV ${RABBITMQ_OBJECT_DELETED_ROUTING_KEY}
       get_metadata_routing_key: !ENV ${RABBITMQ_GET_METADATA_ROUTING_KEY}
-      exchange_type: direct
+      exchange_type: topic
