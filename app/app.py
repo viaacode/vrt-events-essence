@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import time
 from datetime import datetime
 
 from pika.exceptions import AMQPConnectionError
@@ -141,14 +142,17 @@ class EventListener:
             )
             return
 
+        # Wait a while, otherwise MH returns a 404 when updating.
+        time.sleep(2)
+
         # Add Media_id to the newly created fragment
         try:
             self.mh_client.add_metadata_to_fragment(fragment_id, media_id)
         except HTTPError as error:
             self.log.error(
-                f"Unable to add MediaID metadata for umid: {umid}",
+                f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
                 error=error,
-                umid=umid,
+                fragment_id=fragment_id,
                 media_id=media_id,
             )
             return
