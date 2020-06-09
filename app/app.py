@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import uuid
 from datetime import datetime
 
 from pika.exceptions import AMQPConnectionError
@@ -97,6 +96,7 @@ class EventListener:
 
         # Get the main fragment
         try:
+            self.log.debug(f"Retrieve fragment with s3 object key: {filename}")
             fragment = self.mh_client.get_fragment('s3_object_key', filename)
         except HTTPError as error:
             self.log.error(
@@ -119,6 +119,7 @@ class EventListener:
 
         # Create fragment for main fragment
         try:
+            self.log.debug(f"Creating fragment for object with umid: {umid}")
             create_fragment_response = self.mh_client.create_fragment(umid)
         except HTTPError as error:
             self.log.error(
@@ -131,6 +132,7 @@ class EventListener:
         # Retrieve the fragmentId from the response of the newly created fragment.
         try:
             fragment_id = create_fragment_response["Internal"]["FragmentId"]
+            self.log.debug(f"Fragment created with id: {fragment_id}")
         except KeyError as error:
             self.log.error(
                 "fragmentId not found in the response of the create fragment call",
@@ -154,7 +156,7 @@ class EventListener:
         # Build metadata request XML
         xml = self._generate_get_metadata_request_xml(
             datetime.now().isoformat(),
-            media_id, # Correlation_id is the media_id
+            media_id,  # Correlation_id is the media_id
             media_id,
         )
 
@@ -169,6 +171,10 @@ class EventListener:
         essenceLinked, essenceUnLinked and objectDeleted.
         """
         routing_key = method.routing_key
+        self.log.info(
+            f"Incoming message with routing key: {routing_key}",
+            incoming_message=body
+        )
         if routing_key == self.essence_linked_rk:
             self._handle_linked_event(body)
         elif routing_key == self.essence_unlinked_rk:
@@ -178,10 +184,13 @@ class EventListener:
             # TODO process deleted
             pass
         else:
-            # TODO log/raise
-            pass
+            self.log.warning(
+                f"Unknown routing key: {routing_key}",
+                incoming_message=body
+            )
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
     def start(self):
         # Start listening for incoming messages
+        self.log.info("Start to listen for incoming essence events...")
         self.rabbit_client.listen(self.handle_message)

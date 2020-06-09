@@ -1,6 +1,6 @@
 viaa:
     logging:
-      level: WARNING
+      level: DEBUG
 app:
     mediahaven: 
       host: !ENV ${MEDIAHAVEN_HOST}
