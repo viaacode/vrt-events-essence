@@ -10,6 +10,9 @@ from requests.auth import HTTPBasicAuth
 from requests.exceptions import RequestException
 
 
+NAMESPACE_MHS = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
+NSMAP = {"mhs": NAMESPACE_MHS}
+
 class AuthenticationException(Exception):
     """Exception raised when authentication fails."""
     pass
@@ -115,7 +118,7 @@ class MediahavenClient:
         url = f'{self.url}{fragment_id}'
 
         # Create the payload
-        sidecar = self._construct_metadata_media_id(media_id)
+        sidecar = self._construct_metadata(media_id)
         data = {"metadata": sidecar, "reason": "essenceLinked: add mediaID to fragment"}
 
         # Send the POST request, as multipart/form-data
@@ -130,7 +133,7 @@ class MediahavenClient:
 
         return True
 
-    def _construct_metadata_media_id(self, media_id: str) -> str:
+    def _construct_metadata(self, media_id: str) -> str:
         """Create the sidecar XML to upload the media id metadata.
 
         TODO Rework this into the XML_BUILDER.
@@ -138,12 +141,11 @@ class MediahavenClient:
         Returns:
             str -- The metadata sidecar XML.
         """
-        namespace_mhs = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
-        nsmap = {"mhs": namespace_mhs}
-        root = etree.Element(f"{{{namespace_mhs}}}Sidecar", nsmap=nsmap, version="20.1")
-        dynamic = etree.SubElement(root, f"{{{namespace_mhs}}}Dynamic")
-        local_id = etree.SubElement(dynamic, "dc_identifier_localids")
-        media_id = etree.SubElement(local_id, "MEDIA_ID").text = media_id
+        root = etree.Element(f"{{{NAMESPACE_MHS}}}Sidecar", nsmap=NSMAP, version="20.1")
+        dynamic = etree.SubElement(root, f"{{{NAMESPACE_MHS}}}Dynamic")
+        etree.SubElement(dynamic, "dc_identifier_localid").text = media_id
+        local_ids = etree.SubElement(dynamic, "dc_identifier_localids")
+        etree.SubElement(local_ids, "MEDIA_ID").text = media_id
 
         return etree.tostring(
             root,
