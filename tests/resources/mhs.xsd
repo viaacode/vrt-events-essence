@@ -1,0 +1,155 @@
+<xs:schema xmlns:mh="https://zeticon.mediahaven.com/metadata/20.1/mh/" xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           attributeFormDefault="unqualified" elementFormDefault="qualified"
+           targetNamespace="https://zeticon.mediahaven.com/metadata/20.1/mhs/" version="20.1">
+   <xs:import namespace="https://zeticon.mediahaven.com/metadata/20.1/mh/" schemaLocation="mh.xsd"/>
+   <xs:element name="Sidecar">
+      <xs:complexType>
+         <xs:all>
+            <xs:element minOccurs="0" name="Descriptive">
+               <xs:complexType>
+                  <xs:all>
+                     <xs:element minOccurs="0" ref="mh:Title"/>
+                     <xs:element minOccurs="0" ref="mh:Description"/>
+                     <xs:element minOccurs="0" ref="mh:CreationDate"/>
+                     <xs:element minOccurs="0" ref="mh:RightsOwner"/>
+                     <xs:element minOccurs="0" ref="mh:Rights"/>
+                     <xs:element minOccurs="0" ref="mh:Keywords"/>
+                     <xs:element minOccurs="0" ref="mh:Categories"/>
+                     <xs:element minOccurs="0" ref="mh:Publisher"/>
+                     <xs:element minOccurs="0" ref="mh:Authors"/>
+                     <xs:element minOccurs="0" ref="mh:Location"/>
+                     <xs:element minOccurs="0" ref="mh:Address"/>
+                     <xs:element minOccurs="0" ref="mh:NonPreferredTerm"/>
+                     <xs:element minOccurs="0" ref="mh:Publications"/>
+                     <xs:element minOccurs="0" ref="mh:OriginalFilename"/>
+                     <xs:element minOccurs="0" ref="mh:UploadedBy"/>
+                     <xs:element minOccurs="0" ref="mh:KeyframeStart"/>
+                  </xs:all>
+               </xs:complexType>
+            </xs:element>
+            <xs:element minOccurs="0" name="Administrative">
+               <xs:complexType>
+                  <xs:all>
+                     <xs:element minOccurs="0" ref="mh:OrganisationName"/>
+                     <xs:element minOccurs="0" ref="mh:LastModifiedDate"/>
+                     <xs:element minOccurs="0" ref="mh:ExternalId"/>
+                     <xs:element minOccurs="0" ref="mh:ArchiveDate"/>
+                     <xs:element minOccurs="0" ref="mh:Type"/>
+                     <xs:element minOccurs="0" ref="mh:DepartmentName"/>
+                     <xs:element minOccurs="0" ref="mh:Workflow"/>
+                     <xs:element minOccurs="0" ref="mh:IngestTape"/>
+                     <xs:element minOccurs="0" ref="mh:ExternalUrl"/>
+                     <xs:element minOccurs="0" ref="mh:IsSynchronized"/>
+                     <xs:element minOccurs="0" ref="mh:Workflows"/>
+                      <xs:element minOccurs="0" ref="mh:OrganisationLongName"/>
+                     <xs:element minOccurs="0" ref="mh:IsOriginal"/>
+                     <xs:element minOccurs="0" ref="mh:IsPreservation"/>
+                     <xs:element minOccurs="0" ref="mh:IsAccess"/>
+                  </xs:all>
+               </xs:complexType>
+            </xs:element>
+            <xs:element minOccurs="0" name="Technical">
+               <xs:complexType>
+                  <xs:all>
+                     <xs:element minOccurs="0" ref="mh:PronomId"/>
+                     <xs:element minOccurs="0" ref="mh:OriginalExtension"/>
+                     <xs:element minOccurs="0" ref="mh:FileSize"/>
+                     <xs:element minOccurs="0" ref="mh:Md5"/>
+                     <xs:element minOccurs="0" ref="mh:MimeType"/>
+                     <xs:element minOccurs="0" ref="mh:Width"/>
+                     <xs:element minOccurs="0" ref="mh:Height"/>
+                     <xs:element minOccurs="0" ref="mh:ImageSize"/>
+                     <xs:element minOccurs="0" ref="mh:ImageQuality"/>
+                     <xs:element minOccurs="0" ref="mh:ImageOrientation"/>
+                     <xs:element minOccurs="0" ref="mh:VideoTechnical"/>
+                     <xs:element minOccurs="0" ref="mh:AudioTechnical"/>
+                     <xs:element minOccurs="0" ref="mh:VideoFormat"/>
+                     <xs:element minOccurs="0" ref="mh:DurationTimeCode"/>
+                     <xs:element minOccurs="0" ref="mh:StartTimeCode"/>
+                     <xs:element minOccurs="0" ref="mh:EndTimeCode"/>
+                     <xs:element minOccurs="0" ref="mh:DurationFrames"/>
+                     <xs:element minOccurs="0" ref="mh:StartFrames"/>
+                     <xs:element minOccurs="0" ref="mh:EndFrames"/>
+                     <xs:element minOccurs="0" ref="mh:BitRate"/>
+                     <xs:element minOccurs="0" ref="mh:VideoCodec"/>
+                     <xs:element minOccurs="0" ref="mh:VideoFps"/>
+                     <xs:element minOccurs="0" ref="mh:VideoBitRate"/>
+                     <xs:element minOccurs="0" ref="mh:AudioCodec"/>
+                     <xs:element minOccurs="0" ref="mh:AudioChannels"/>
+                     <xs:element minOccurs="0" ref="mh:AudioSampleRate"/>
+                     <xs:element minOccurs="0" ref="mh:AudioBitRate"/>
+                     <xs:element minOccurs="0" ref="mh:AudioTracks"/>
+                     <xs:element minOccurs="0" ref="mh:Origin"/>
+                     <xs:element minOccurs="0" ref="mh:EssenceOffset"/>
+                     <xs:element minOccurs="0" ref="mh:EditUnitByteSize"/>
+                     <xs:element minOccurs="0" ref="mh:RunIn"/>
+                     <xs:element minOccurs="0" ref="mh:FramesPerEditUnit"/>
+                     <xs:element minOccurs="0" ref="mh:EditRate"/>
+                     <xs:element minOccurs="0" ref="mh:IndexEditRate"/>
+                  </xs:all>
+               </xs:complexType>
+            </xs:element>
+            <xs:element minOccurs="0" name="Internal">
+               <xs:complexType>
+                  <xs:all>
+                     <xs:element minOccurs="0" ref="mh:MediaObjectId"/>
+                     <xs:element minOccurs="0" ref="mh:FragmentId"/>
+                     <xs:element minOccurs="0" ref="mh:OriginalStatus"/>
+                     <xs:element minOccurs="0" ref="mh:BrowseStatus"/>
+                     <xs:element minOccurs="0" ref="mh:ArchiveStatus"/>
+                     <xs:element minOccurs="0" ref="mh:UploadedById"/>
+                     <xs:element minOccurs="0" ref="mh:OrganisationId"/>
+                     <xs:element minOccurs="0" ref="mh:IngestSpaceId"/>
+                     <xs:element minOccurs="0" ref="mh:IsInIngestSpace"/>
+                     <xs:element minOccurs="0" ref="mh:DepartmentId"/>
+                     <xs:element minOccurs="0" ref="mh:IsFragment"/>
+                     <xs:element minOccurs="0" ref="mh:HasKeyframes"/>
+                     <xs:element minOccurs="0" ref="mh:ContainsGeoData"/>
+                     <xs:element minOccurs="0" ref="mh:PathToKeyframe"/>
+                     <xs:element minOccurs="0" ref="mh:PathToKeyframeThumb"/>
+                     <xs:element minOccurs="0" ref="mh:PathToVideo"/>
+                     <xs:element minOccurs="0" ref="mh:Browses"/>
+                     <xs:element minOccurs="0" ref="mh:Distributions"/>
+                  </xs:all>
+               </xs:complexType>
+            </xs:element>
+            <xs:element minOccurs="0" name="Structural">
+               <xs:complexType>
+                  <xs:all>
+                     <xs:element minOccurs="0" ref="mh:Collections"/>
+                     <xs:element minOccurs="0" ref="mh:Sets"/>
+                     <xs:element minOccurs="0" ref="mh:Newspapers"/>
+                     <xs:element minOccurs="0" ref="mh:Fragments"/>
+                     <xs:element minOccurs="0" ref="mh:MainFragment"/>
+                     <xs:element minOccurs="0" ref="mh:FragmentDurationTimeCode"/>
+                     <xs:element minOccurs="0" ref="mh:FragmentStartTimeCode"/>
+                     <xs:element minOccurs="0" ref="mh:FragmentEndTimeCode"/>
+                     <xs:element minOccurs="0" ref="mh:FragmentDurationFrames"/>
+                     <xs:element minOccurs="0" ref="mh:FragmentStartFrames"/>
+                     <xs:element minOccurs="0" ref="mh:FragmentEndFrames"/>
+                     <xs:element minOccurs="0" ref="mh:Versioning"/>
+                     <xs:element minOccurs="0" ref="mh:Relations"/>
+                  </xs:all>
+               </xs:complexType>
+            </xs:element>
+            <xs:element minOccurs="0" name="RightsManagement">
+               <xs:complexType>
+                  <xs:all>
+                     <xs:element minOccurs="0" ref="mh:Permissions"/>
+                     <xs:element minOccurs="0" ref="mh:ExpiryDate"/>
+                     <xs:element minOccurs="0" ref="mh:ExpiryStatus"/>
+                  </xs:all>
+               </xs:complexType>
+            </xs:element>
+            <xs:element minOccurs="0" name="Dynamic">
+               <xs:complexType>
+                  <xs:sequence maxOccurs="unbounded">
+                     <xs:any maxOccurs="unbounded" minOccurs="0" processContents="skip"/>
+                  </xs:sequence>
+               </xs:complexType>
+            </xs:element>
+         </xs:all>
+         <xs:attribute name="version" type="xs:string" use="required"/>
+      </xs:complexType>
+   </xs:element>
+</xs:schema>

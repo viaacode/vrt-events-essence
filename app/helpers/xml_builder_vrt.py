@@ -4,7 +4,7 @@
 from lxml import etree
 
 
-class XMLBuilder(object):
+class XMLBuilderVRT(object):
     XML_ENCODING = "UTF-8"
     NAMESPACES = {
         None: "http://www.vrt.be/mig/viaa/api",

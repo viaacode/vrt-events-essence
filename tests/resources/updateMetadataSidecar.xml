@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<mhs:Sidecar xmlns:mhs="https://zeticon.mediahaven.com/metadata/19.4/mhs/" version="19.4">
+  <mhs:Dynamic>
+    <dc_identifier_localids>
+      <MEDIA_ID>media id</MEDIA_ID>
+    </dc_identifier_localids>
+  </mhs:Dynamic>
+</mhs:Sidecar>

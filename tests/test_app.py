@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 from lxml import etree
 
 from app.app import EventListener
-from tests.resources.essence_linked_events import essence_linked_event
+from tests.resources.resources import load_xml_resource, construct_filename
 from tests.resources.mocks import mock_rabbit
 
 
@@ -21,10 +21,7 @@ def test_generate_get_metadata_request_xml(mock_rabbit):
     )
 
     # Load in XML schema
-    xsd_fn = os.path.join(
-        os.path.dirname(__file__), "resources", "get_metadata_request.xsd"
-    )
-    schema = etree.XMLSchema(file=xsd_fn)
+    schema = etree.XMLSchema(file=construct_filename("getMetadataRequest.xsd"))
 
     # Parse getMetadataRequest XML as tree
     tree = etree.parse(BytesIO(xml.encode("utf-8")))
@@ -45,6 +42,8 @@ def test_handle_message_essence_linked(mock_handle_linked_event, mock_rabbit):
     mock_method = MagicMock()
     mock_method.delivery_tag = 1
     mock_method.routing_key = routing_key
+    essence_linked_event = load_xml_resource("essenceLinkedEvent.xml")
+
 
     # ACT
     eventListener.handle_message(mock_channel, mock_method, None, essence_linked_event)

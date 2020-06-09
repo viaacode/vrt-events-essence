@@ -90,7 +90,7 @@ class MediahavenClient:
         headers = self._construct_headers()
 
         # Construct the URL to post to
-        url = f'{self.url}/{media_object_id}/fragments'
+        url = f'{self.url}{media_object_id}/fragments'
 
         # Create the payload
         data = {"fragmentStartFrames": "0", "fragmentEndFrames": "0"}
@@ -108,11 +108,11 @@ class MediahavenClient:
         return response.json()
 
     @__authenticate
-    def add_metadata_to_fragment(self, fragment_id: str, media_id: str) -> dict:
+    def add_metadata_to_fragment(self, fragment_id: str, media_id: str) -> bool:
         headers = self._construct_headers()
 
         # Construct the URL to POST to
-        url = f'{self.url}/{fragment_id}'
+        url = f'{self.url}{fragment_id}'
 
         # Create the payload
         sidecar = self._construct_metadata_media_id(media_id)
@@ -128,7 +128,7 @@ class MediahavenClient:
         # If there is an HTTP error, raise it
         response.raise_for_status()
 
-        return response.json()
+        return True
 
     def _construct_metadata_media_id(self, media_id: str) -> str:
         """Create the sidecar XML to upload the media id metadata.
@@ -138,9 +138,10 @@ class MediahavenClient:
         Returns:
             str -- The metadata sidecar XML.
         """
-        namespace = {"mhs": "https://zeticon.mediahaven.com/metadata/19.2/mhs/"}
-        root = etree.Element("Sidecar", nsmap=namespace, version="19.2")
-        dynamic = etree.SubElement(root, "Dynamic")
+        namespace_mhs = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
+        nsmap = {"mhs": namespace_mhs}
+        root = etree.Element(f"{{{namespace_mhs}}}Sidecar", nsmap=nsmap, version="20.1")
+        dynamic = etree.SubElement(root, f"{{{namespace_mhs}}}Dynamic")
         local_id = etree.SubElement(dynamic, "dc_identifier_localids")
         media_id = etree.SubElement(local_id, "MEDIA_ID").text = media_id
 

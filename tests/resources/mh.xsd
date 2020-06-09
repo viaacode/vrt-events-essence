@@ -1,0 +1,420 @@
+<xs:schema xmlns:mh="https://zeticon.mediahaven.com/metadata/20.1/mh/" xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           attributeFormDefault="unqualified" elementFormDefault="qualified"
+           targetNamespace="https://zeticon.mediahaven.com/metadata/20.1/mh/" version="20.1">
+    
+    <xs:simpleType name="SimpleStrategy">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="overwrite"/>
+            <xs:enumeration value="OVERWRITE"/>
+            <xs:enumeration value="keep"/>
+            <xs:enumeration value="KEEP"/>
+        </xs:restriction>
+    </xs:simpleType>
+    
+    <xs:complexType name="SimpleField">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="strategy" type="mh:SimpleStrategy" use="optional"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="EnumField">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="strategy" type="mh:SimpleStrategy" use="optional"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="DateField">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="strategy" type="mh:SimpleStrategy" use="optional"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="BooleanField">
+        <xs:simpleContent>
+            <xs:restriction base="mh:SimpleField">
+                <xs:enumeration value="true"/>
+                <xs:enumeration value="false"/>
+            </xs:restriction>
+        </xs:simpleContent>
+    </xs:complexType>
+    
+    <xs:complexType name="TimeCodeField">
+        <xs:simpleContent>
+            <xs:restriction base="mh:SimpleField">
+                <xs:pattern value="[0-9]{2,}:[0-5][0-9]:[0-5][0-9]\.[0-9]{3}"/>
+            </xs:restriction>
+        </xs:simpleContent>
+    </xs:complexType>
+    
+    <xs:complexType name="LongField">
+        <xs:simpleContent>
+            <xs:extension base="xs:nonNegativeInteger">
+                <xs:attribute name="strategy" type="mh:SimpleStrategy" use="optional"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+    
+    <xs:complexType name="FramesField">
+        <xs:simpleContent>
+            <xs:extension base="mh:LongField"/>
+        </xs:simpleContent>
+    </xs:complexType>
+    
+    <xs:complexType name="ComplexField">
+        <xs:attribute name="strategy" use="optional">
+            <xs:simpleType>
+                <xs:restriction base="xs:string">
+                    <xs:enumeration value="overwrite"/>
+                    <xs:enumeration value="OVERWRITE"/>
+                    <xs:enumeration value="keep"/>
+                    <xs:enumeration value="KEEP"/>
+                    <xs:enumeration value="merge"/>
+                    <xs:enumeration value="MERGE"/>
+                </xs:restriction>
+            </xs:simpleType>
+        </xs:attribute>
+    </xs:complexType>
+<xs:element name="Title" type="mh:SimpleField"/>
+   <xs:element name="Description" type="mh:SimpleField"/>
+   <xs:element name="CreationDate" type="mh:SimpleField"/>
+   <xs:element name="RightsOwner" type="mh:SimpleField"/>
+   <xs:element name="Rights" type="mh:SimpleField"/>
+   <xs:element name="Keywords">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Keyword" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Categories">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Category" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Publisher" type="mh:SimpleField"/>
+   <xs:element name="Authors">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:any processContents="lax"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Location" type="mh:SimpleField"/>
+   <xs:element name="Address">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:any processContents="lax"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="NonPreferredTerm" type="mh:SimpleField"/>
+   <xs:element name="Publications">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Comment" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="OriginalFilename" type="mh:SimpleField"/>
+   <xs:element name="UploadedBy" type="mh:SimpleField"/>
+   <xs:element name="KeyframeStart" type="mh:FramesField"/>
+   <xs:element name="OrganisationName" type="mh:SimpleField"/>
+   <xs:element name="LastModifiedDate" type="mh:SimpleField"/>
+   <xs:element name="ExternalId" type="mh:SimpleField"/>
+   <xs:element name="ArchiveDate" type="mh:SimpleField"/>
+   <xs:element name="Type" type="mh:SimpleField"/>
+   <xs:element name="DepartmentName" type="mh:SimpleField"/>
+   <xs:element name="Workflow" type="mh:SimpleField"/>
+   <xs:element name="IngestTape" type="mh:SimpleField"/>
+   <xs:element name="ExternalUrl" type="mh:SimpleField"/>
+   <xs:element name="IsSynchronized" type="mh:BooleanField"/>
+   <xs:element name="Workflows">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Workflw">
+                     <xs:complexType>
+                        <xs:complexContent>
+                           <xs:extension base="mh:ComplexField">
+                              <xs:all>
+                                 <xs:element minOccurs="0" name="Name" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="ExecutionId" type="mh:SimpleField"/>
+                              </xs:all>
+                           </xs:extension>
+                        </xs:complexContent>
+                     </xs:complexType>
+                  </xs:element>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+    <xs:element name="OrganisationLongName" type="mh:SimpleField"/>
+   <xs:element name="PronomId" type="mh:SimpleField"/>
+   <xs:element name="OriginalExtension" type="mh:SimpleField"/>
+   <xs:element name="FileSize" type="mh:LongField"/>
+   <xs:element name="Md5" type="mh:SimpleField"/>
+   <xs:element name="MimeType" type="mh:SimpleField"/>
+   <xs:element name="Width" type="mh:LongField"/>
+   <xs:element name="Height" type="mh:LongField"/>
+   <xs:element name="ImageSize" type="mh:SimpleField"/>
+   <xs:element name="ImageQuality" type="mh:SimpleField"/>
+   <xs:element name="ImageOrientation" type="mh:SimpleField"/>
+   <xs:element name="VideoTechnical" type="mh:SimpleField"/>
+   <xs:element name="AudioTechnical" type="mh:SimpleField"/>
+   <xs:element name="VideoFormat" type="mh:SimpleField"/>
+   <xs:element name="DurationTimeCode" type="mh:TimeCodeField"/>
+   <xs:element name="StartTimeCode" type="mh:TimeCodeField"/>
+   <xs:element name="EndTimeCode" type="mh:TimeCodeField"/>
+   <xs:element name="DurationFrames" type="mh:FramesField"/>
+   <xs:element name="StartFrames" type="mh:FramesField"/>
+   <xs:element name="EndFrames" type="mh:FramesField"/>
+   <xs:element name="BitRate" type="mh:LongField"/>
+   <xs:element name="VideoCodec" type="mh:SimpleField"/>
+   <xs:element name="VideoFps" type="mh:SimpleField"/>
+   <xs:element name="VideoBitRate" type="mh:LongField"/>
+   <xs:element name="AudioCodec" type="mh:SimpleField"/>
+   <xs:element name="AudioChannels" type="mh:LongField"/>
+   <xs:element name="AudioSampleRate" type="mh:LongField"/>
+   <xs:element name="AudioBitRate" type="mh:LongField"/>
+   <xs:element name="AudioTracks">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Track">
+                     <xs:complexType>
+                        <xs:complexContent>
+                           <xs:extension base="mh:ComplexField">
+                              <xs:all>
+                                 <xs:element minOccurs="0" name="Title" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="Language" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="Channels" type="mh:LongField"/>
+                              </xs:all>
+                           </xs:extension>
+                        </xs:complexContent>
+                     </xs:complexType>
+                  </xs:element>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Origin" type="mh:FramesField"/>
+   <xs:element name="EssenceOffset" type="mh:LongField"/>
+   <xs:element name="EditUnitByteSize" type="mh:LongField"/>
+   <xs:element name="RunIn" type="mh:LongField"/>
+   <xs:element name="FramesPerEditUnit" type="mh:LongField"/>
+   <xs:element name="EditRate" type="mh:SimpleField"/>
+   <xs:element name="IndexEditRate" type="mh:SimpleField"/>
+   <xs:element name="MediaObjectId" type="mh:SimpleField"/>
+   <xs:element name="FragmentId" type="mh:SimpleField"/>
+   <xs:element name="OriginalStatus" type="mh:SimpleField"/>
+   <xs:element name="BrowseStatus" type="mh:SimpleField"/>
+   <xs:element name="ArchiveStatus" type="mh:SimpleField"/>
+   <xs:element name="UploadedById" type="mh:SimpleField"/>
+   <xs:element name="OrganisationId" type="mh:SimpleField"/>
+   <xs:element name="IngestSpaceId" type="mh:SimpleField"/>
+   <xs:element name="IsInIngestSpace" type="mh:BooleanField"/>
+   <xs:element name="DepartmentId" type="mh:SimpleField"/>
+   <xs:element name="IsFragment" type="mh:BooleanField"/>
+   <xs:element name="HasKeyframes" type="mh:BooleanField"/>
+   <xs:element name="ContainsGeoData" type="mh:BooleanField"/>
+   <xs:element name="PathToKeyframe" type="mh:SimpleField"/>
+   <xs:element name="PathToKeyframeThumb" type="mh:SimpleField"/>
+   <xs:element name="PathToVideo" type="mh:SimpleField"/>
+   <xs:element name="Browses">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Browse">
+                     <xs:complexType>
+                        <xs:complexContent>
+                           <xs:extension base="mh:ComplexField">
+                              <xs:choice maxOccurs="unbounded" minOccurs="0">
+                                 <xs:element minOccurs="0" name="PathToKeyframe" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="PathToKeyframeThumb" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="PathToVideo" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="HasKeyframes" type="mh:BooleanField"/>
+                                 <xs:element minOccurs="0" name="Container" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="BaseUrl" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="Label" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="FileSize" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="Width" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="Height" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="BitRate" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="VideoCodec" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="VideoFps" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="VideoBitRate" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="AudioCodec" type="mh:SimpleField"/>
+                                 <xs:element minOccurs="0" name="AudioChannels" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="AudioSampleRate" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="AudioBitRate" type="mh:LongField"/>
+                                 <xs:element minOccurs="0" name="AudioTracks">
+                                    <xs:complexType>
+                                       <xs:complexContent>
+                                          <xs:extension base="mh:ComplexField">
+                                             <xs:choice maxOccurs="unbounded" minOccurs="0">
+                                                <xs:element minOccurs="0" name="Track">
+                                                   <xs:complexType>
+                                                      <xs:complexContent>
+                                                         <xs:extension base="mh:ComplexField">
+                                                            <xs:all>
+                                                               <xs:element minOccurs="0" name="Title" type="mh:SimpleField"/>
+                                                               <xs:element minOccurs="0" name="Language" type="mh:SimpleField"/>
+                                                               <xs:element minOccurs="0" name="Channels" type="mh:LongField"/>
+                                                            </xs:all>
+                                                         </xs:extension>
+                                                      </xs:complexContent>
+                                                   </xs:complexType>
+                                                </xs:element>
+                                             </xs:choice>
+                                          </xs:extension>
+                                       </xs:complexContent>
+                                    </xs:complexType>
+                                 </xs:element>
+                              </xs:choice>
+                           </xs:extension>
+                        </xs:complexContent>
+                     </xs:complexType>
+                  </xs:element>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Distributions">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Distribution" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Collections">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Collection" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Sets">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Set" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Newspapers">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Newspaper" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Fragments">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Fragment" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="MainFragment" type="mh:SimpleField"/>
+   <xs:element name="FragmentDurationTimeCode" type="mh:TimeCodeField"/>
+   <xs:element name="FragmentStartTimeCode" type="mh:TimeCodeField"/>
+   <xs:element name="FragmentEndTimeCode" type="mh:TimeCodeField"/>
+   <xs:element name="FragmentDurationFrames" type="mh:FramesField"/>
+   <xs:element name="FragmentStartFrames" type="mh:FramesField"/>
+   <xs:element name="FragmentEndFrames" type="mh:FramesField"/>
+   <xs:element name="Versioning">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:all>
+                  <xs:element minOccurs="0" name="Id" type="mh:SimpleField"/>
+                  <xs:element minOccurs="0" name="Status" type="mh:EnumField"/>
+                  <xs:element minOccurs="0" name="Version" type="mh:FramesField"/>
+               </xs:all>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="IsOriginal" type="mh:BooleanField"/>
+   <xs:element name="IsPreservation" type="mh:BooleanField"/>
+   <xs:element name="IsAccess" type="mh:BooleanField"/>
+   <xs:element name="Relations">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:any processContents="lax"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="Permissions">
+      <xs:complexType>
+         <xs:complexContent>
+            <xs:extension base="mh:ComplexField">
+               <xs:choice maxOccurs="unbounded" minOccurs="0">
+                  <xs:element minOccurs="0" name="Read" type="mh:SimpleField"/>
+                  <xs:element minOccurs="0" name="Write" type="mh:SimpleField"/>
+                  <xs:element minOccurs="0" name="Export" type="mh:SimpleField"/>
+               </xs:choice>
+            </xs:extension>
+         </xs:complexContent>
+      </xs:complexType>
+   </xs:element>
+   <xs:element name="ExpiryDate" type="mh:SimpleField"/>
+   <xs:element name="ExpiryStatus" type="mh:SimpleField"/>
+</xs:schema>

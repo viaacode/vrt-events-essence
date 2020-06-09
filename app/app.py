@@ -14,7 +14,7 @@ from app.helpers.events_parser import (
     EssenceLinkedEvent,
     EssenceLinkedEventNotValidException
 )
-from app.helpers.xml_builder import XMLBuilder
+from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from app.services.mediahaven import MediahavenClient
 
@@ -55,7 +55,7 @@ class EventListener:
             "mediaId": media_id
         }
 
-        builder = XMLBuilder()
+        builder = XMLBuilderVRT()
         builder.build("getMetadataRequest", xml_data_dict)
         xml = builder.to_string(pretty=True)
 
@@ -89,7 +89,7 @@ class EventListener:
                 "Unable to parse the incoming essence linked event",
                 error=error,
                 message=message,
-                )
+            )
             return
 
         filename = event.file
