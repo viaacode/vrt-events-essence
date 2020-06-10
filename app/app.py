@@ -4,16 +4,13 @@
 import time
 from datetime import datetime
 
+from lxml.etree import XMLSyntaxError
 from pika.exceptions import AMQPConnectionError
 from requests.exceptions import HTTPError
 
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
-
-from app.helpers.events_parser import (
-    EssenceLinkedEvent,
-    EssenceLinkedEventNotValidException
-)
+from app.helpers.events_parser import EssenceLinkedEvent
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from app.services.mediahaven import MediahavenClient
@@ -82,79 +79,37 @@ class EventListener:
         )
 
         # Parse event
-        try:
-            event = EssenceLinkedEvent(message)
-        except EssenceLinkedEventNotValidException as error:
-            self.log.error(
-                "Unable to parse the incoming essence linked event",
-                error=error,
-                message=message,
-            )
+        event = self._essence_linked_parse_event(message)
+        if event is None:
             return
 
         filename = event.file
         media_id = event.media_id
 
         # Get the main fragment
-        try:
-            self.log.debug(f"Retrieve fragment with s3 object key: {filename}")
-            fragment = self.mh_client.get_fragment('s3_object_key', filename)
-        except HTTPError as error:
-            self.log.error(
-                f"Unable to retrieve MediaHaven object for s3_object_key: {filename}",
-                error=error,
-                s3_object_key=filename,
-            )
+        fragment = self._essence_linked_get_fragment(filename)
+        if fragment is None:
             return
 
         # Retrieve the umid from the MediaHaven object
-        try:
-            umid = fragment["MediaDataList"][0]["Internal"]["MediaObjectId"]
-        except KeyError as error:
-            self.log.error(
-                "MediaObjectId not found in the MediaHaven object",
-                error=error,
-                fragment=fragment,
-            )
+        umid = self._essence_linked_retrieve_umid(fragment)
+        if umid is None:
             return
 
         # Create fragment for main fragment
-        try:
-            self.log.debug(f"Creating fragment for object with umid: {umid}")
-            create_fragment_response = self.mh_client.create_fragment(umid)
-        except HTTPError as error:
-            self.log.error(
-                f"Unable to create a fragment for umid: {umid}",
-                error=error,
-                umid=umid,
-            )
+        create_fragment_response = self._essence_linked_create_fragment(umid)
+        if create_fragment_response is None:
             return
 
         # Retrieve the fragmentId from the response of the newly created fragment.
-        try:
-            fragment_id = create_fragment_response["Internal"]["FragmentId"]
-            self.log.debug(f"Fragment created with id: {fragment_id}")
-        except KeyError as error:
-            self.log.error(
-                "fragmentId not found in the response of the create fragment call",
-                create_fragment_response=create_fragment_response,
-                error=error,
-            )
-            return
+        fragment_id = self._essence_linked_retrieve_fragment_id(create_fragment_response)
 
         # Wait a while, otherwise MH returns a 404 when updating.
-        time.sleep(2)
+        time.sleep(3)
 
         # Add Media_id to the newly created fragment
-        try:
-            self.mh_client.add_metadata_to_fragment(fragment_id, media_id)
-        except HTTPError as error:
-            self.log.error(
-                f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
-                error=error,
-                fragment_id=fragment_id,
-                media_id=media_id,
-            )
+        result = self._essence_linked_add_metadata(fragment_id, media_id)
+        if not result:
             return
 
         # Build metadata request XML
@@ -166,6 +121,82 @@ class EventListener:
 
         # Send metadata request to the queue
         self.rabbit_client.send_message(xml, self.get_metadata_rk)
+
+    def _essence_linked_parse_event(self, message: str) -> EssenceLinkedEvent:
+        try:
+            event = EssenceLinkedEvent(message)
+        except XMLSyntaxError as error:
+            self.log.error(
+                "Unable to parse the incoming essence linked event",
+                error=error,
+                essence_linked_event=message,
+            )
+            return None
+        return event
+
+    def _essence_linked_get_fragment(self, filename: str) -> dict:
+        try:
+            self.log.debug(f"Retrieve fragment with s3 object key: {filename}")
+            fragment = self.mh_client.get_fragment('s3_object_key', filename)
+        except HTTPError as error:
+            self.log.error(
+                f"Unable to retrieve MediaHaven object for s3_object_key: {filename}",
+                error=error,
+                s3_object_key=filename,
+            )
+            return None
+        return fragment
+
+    def _essence_linked_retrieve_umid(self, fragment: dict) -> str:
+        try:
+            umid = fragment["MediaDataList"][0]["Internal"]["MediaObjectId"]
+        except KeyError as error:
+            self.log.error(
+                "MediaObjectId not found in the MediaHaven object",
+                error=error,
+                fragment=fragment,
+            )
+            return None
+        return umid
+
+    def _essence_linked_create_fragment(self, umid: str) -> dict:
+        try:
+            self.log.debug(f"Creating fragment for object with umid: {umid}")
+            create_fragment_response = self.mh_client.create_fragment(umid)
+        except HTTPError as error:
+            self.log.error(
+                f"Unable to create a fragment for umid: {umid}",
+                error=error,
+                umid=umid,
+            )
+            return None
+        return create_fragment_response
+
+    def _essence_linked_retrieve_fragment_id(self, create_fragment_response: dict) -> str:
+        try:
+            fragment_id = create_fragment_response["Internal"]["FragmentId"]
+            self.log.debug(f"Fragment created with id: {fragment_id}")
+        except KeyError as error:
+            self.log.error(
+                "fragmentId not found in the response of the create fragment call",
+                create_fragment_response=create_fragment_response,
+                error=error,
+            )
+            return None
+        return fragment_id
+
+    def _essence_linked_add_metadata(self, fragment_id: str, media_id: str) -> bool:
+        try:
+            self.mh_client.add_metadata_to_fragment(fragment_id, media_id)
+        except HTTPError as error:
+            self.log.error(
+                f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
+                error=error,
+                fragment_id=fragment_id,
+                media_id=media_id,
+            )
+            return False
+        return True
 
     def handle_message(self, channel, method, properties, body):
         """Main method that will handle the incoming messages.
