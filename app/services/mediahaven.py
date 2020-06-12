@@ -13,6 +13,7 @@ from requests.exceptions import RequestException
 NAMESPACE_MHS = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
 NSMAP = {"mhs": NAMESPACE_MHS}
 
+
 class AuthenticationException(Exception):
     """Exception raised when authentication fails."""
     pass
@@ -109,6 +110,25 @@ class MediahavenClient:
         response.raise_for_status()
 
         return response.json()
+
+    @__authenticate
+    def delete_fragment(self, fragment_id: str) -> dict:
+        headers = self._construct_headers()
+
+        # Construct the URL to post to
+        url = f'{self.url}{fragment_id}'
+
+        # Send the DELETE request
+        response = requests.delete(url, headers=headers)
+
+        if response.status_code == 401:
+            # AuthenticationException triggers a retry with a new token
+            raise AuthenticationException(response.text)
+
+        # If there is an HTTP error, raise it
+        response.raise_for_status()
+
+        return response.status_code == 204
 
     @__authenticate
     def add_metadata_to_fragment(self, fragment_id: str, media_id: str) -> bool:

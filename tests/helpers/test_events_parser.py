@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
 from io import BytesIO
 
 from lxml import etree
 
-from app.helpers.events_parser import EssenceLinkedEvent
+from app.helpers.events_parser import EssenceLinkedEvent, EssenceUnlinkedEvent
 from tests.resources.resources import load_xml_resource, construct_filename
 
 
@@ -28,4 +27,24 @@ class TestEssenceLinkedEvent:
         event = EssenceLinkedEvent(load_xml_resource("essenceLinkedEvent.xml"))
         assert event.timestamp == "2019-09-24T17:21:28.787+02:00"
         assert event.file == "file.mxf"
+        assert event.media_id == "media id"
+
+
+class TestEssenceUnlinkedEvent:
+    def test_essence_unlinked_event_xsd(self):
+        """Test if the essence event unlinked xml is valid for the XML schema."""
+
+        # Load in XML schema
+        schema = etree.XMLSchema(file=construct_filename("essenceUnlinkedEvent.xsd"))
+
+        # Parse essence event linked as tree
+        tree = etree.parse(BytesIO(load_xml_resource("essenceUnlinkedEvent.xml")))
+
+        # Assert validness according to schema
+        is_xml_valid = schema.validate(tree)
+        assert is_xml_valid
+
+    def test_essence_unlinked_event(self):
+        event = EssenceUnlinkedEvent(load_xml_resource("essenceUnlinkedEvent.xml"))
+        assert event.timestamp == "2019-09-24T17:21:28.787+02:00"
         assert event.media_id == "media id"

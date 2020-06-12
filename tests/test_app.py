@@ -53,6 +53,7 @@ def test_essence_linked_parse_event_invalid(event_listener):
 
 @patch.object(EventListener, "_handle_linked_event")
 def test_handle_message_essence_linked(mock_handle_linked_event, event_listener):
+    """ Tests if an essence linked event gets interpreted as such """
     routing_key = "essence_linked_routing_key"
     event_listener.essence_linked_rk = routing_key
 
@@ -75,10 +76,10 @@ def test_essence_linked_get_fragment(event_listener):
     mh_client_mock = event_listener.mh_client
     mh_client_mock.get_fragment.return_value = {}
 
-    assert event_listener._essence_linked_get_fragment("frag_id") == {}
+    assert event_listener._essence_linked_get_fragment("file") == {}
     assert mh_client_mock.get_fragment.call_count == 1
     assert mh_client_mock.get_fragment.call_args[0][0] == "s3_object_key"
-    assert mh_client_mock.get_fragment.call_args[0][1] == "frag_id"
+    assert mh_client_mock.get_fragment.call_args[0][1] == "file"
 
 
 def test_essence_linked_get_fragment_http_error(event_listener):
@@ -86,10 +87,10 @@ def test_essence_linked_get_fragment_http_error(event_listener):
     # Raise a HTTP Error when calling method
     event_listener.mh_client.get_fragment.side_effect = HTTPError
 
-    assert event_listener._essence_linked_get_fragment("frag_id") is None
+    assert event_listener._essence_linked_get_fragment("file") is None
     assert mh_client_mock.get_fragment.call_count == 1
     assert mh_client_mock.get_fragment.call_args[0][0] == "s3_object_key"
-    assert mh_client_mock.get_fragment.call_args[0][1] == "frag_id"
+    assert mh_client_mock.get_fragment.call_args[0][1] == "file"
 
 
 def test_essence_linked_retrieve_umid(event_listener):
@@ -166,3 +167,107 @@ def test_essence_linked_add_metadata_http_error(event_listener):
     assert mh_client_mock.add_metadata_to_fragment.call_count == 1
     assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
     assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
+
+
+@patch.object(EventListener, "_handle_unlinked_event")
+def test_handle_message_essence_unlinked(mock_handle_unlinked_event, event_listener):
+    """ Tests if an essence unlinked event gets interpreted as such """
+    routing_key = "essence_unlinked_routing_key"
+    event_listener.essence_unlinked_rk = routing_key
+
+    mock_channel = MagicMock()
+    mock_method = MagicMock()
+    mock_method.delivery_tag = 1
+    mock_method.routing_key = routing_key
+    essence_unlinked_event = load_xml_resource("essenceUnlinkedEvent.xml")
+
+    event_listener.handle_message(mock_channel, mock_method, None, essence_unlinked_event)
+
+    assert mock_handle_unlinked_event.call_count == 1
+    assert mock_handle_unlinked_event.call_args[0][0] == essence_unlinked_event
+
+    assert mock_channel.basic_ack.call_count == 1
+    assert mock_channel.basic_ack.call_args[1]["delivery_tag"] == 1
+
+
+def test_essence_unlinked_parse_event(event_listener):
+    essence_unlinked_event = load_xml_resource("essenceUnlinkedEvent.xml")
+    event = event_listener._essence_unlinked_parse_event(essence_unlinked_event)
+    assert event is not None
+    assert event.media_id == "media id"
+
+
+def test_essence_unlinked_parse_event_invalid(event_listener):
+    essence_unlinked_event = b""
+    event = event_listener._essence_unlinked_parse_event(essence_unlinked_event)
+    assert event is None
+
+
+def test_essence_unlinked_get_fragment(event_listener):
+    mh_client_mock = event_listener.mh_client
+    mh_client_mock.get_fragment.return_value = {}
+
+    assert event_listener._essence_unlinked_get_fragment("media_id") == {}
+    assert mh_client_mock.get_fragment.call_count == 1
+    assert mh_client_mock.get_fragment.call_args[0][0] == "dc_identifier_localid"
+    assert mh_client_mock.get_fragment.call_args[0][1] == "media_id"
+
+
+def test_essence_unlinked_get_fragment_http_error(event_listener):
+    mh_client_mock = event_listener.mh_client
+    # Raise a HTTP Error when calling method
+    event_listener.mh_client.get_fragment.side_effect = HTTPError
+
+    assert event_listener._essence_unlinked_get_fragment("media_id") is None
+    assert mh_client_mock.get_fragment.call_count == 1
+    assert mh_client_mock.get_fragment.call_args[0][0] == "dc_identifier_localid"
+    assert mh_client_mock.get_fragment.call_args[0][1] == "media_id"
+
+
+def test_essence_unlinked_retrieve_fragment_id(event_listener):
+    fragment_id = "fragment id"
+    response = {"MediaDataList": [{"Internal": {"FragmentId": fragment_id}}]}
+    assert event_listener._essence_unlinked_retrieve_fragment_id(response) == fragment_id
+
+
+def test_essence_unlinked_retrieve_fragment_id_key_error(event_listener):
+    fragment_id = "fragment id"
+    response = {"wrong": fragment_id}
+    assert event_listener._essence_unlinked_retrieve_fragment_id(response) is None
+
+
+def test_essence_unlinked_delete_fragment(event_listener):
+    mh_client_mock = event_listener.mh_client
+    fragment_id = "fragment id"
+
+    # Return True, which means the action was successful
+    mh_client_mock.delete_fragment.return_value = True
+
+    assert event_listener._essence_unlinked_delete_fragment(fragment_id)
+    assert mh_client_mock.delete_fragment.call_count == 1
+    assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
+
+
+def test_essence_unlinked_delete_fragment_http_error(event_listener):
+    mh_client_mock = event_listener.mh_client
+    fragment_id = "fragment id"
+
+    # Raise a HTTP Error when calling method
+    mh_client_mock.delete_fragment.side_effect = HTTPError
+
+    assert not event_listener._essence_unlinked_delete_fragment(fragment_id)
+    assert mh_client_mock.delete_fragment.call_count == 1
+    assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
+
+
+def test_handle_message_unknown_routing_key(event_listener, caplog):
+    mock_channel = MagicMock()
+    mock_method = MagicMock()
+    mock_method.delivery_tag = 1
+    mock_method.routing_key = "unknown"
+    message = "irrelevant"
+
+    event_listener.handle_message(mock_channel, mock_method, None, message)
+
+    captured = caplog.text
+    assert "Unknown routing key: unknown" in captured

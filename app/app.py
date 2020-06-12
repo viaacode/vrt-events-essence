@@ -10,7 +10,7 @@ from requests.exceptions import HTTPError
 
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
-from app.helpers.events_parser import EssenceLinkedEvent
+from app.helpers.events_parser import EssenceLinkedEvent, EssenceUnlinkedEvent
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from app.services.mediahaven import MediahavenClient
@@ -198,6 +198,96 @@ class EventListener:
             return False
         return True
 
+    def _handle_unlinked_event(self, message: str):
+        """Handle an incoming essence unlinked event.
+
+        First we parse the XML message into a EssenceUnlinkedEvent.
+        Then we search in mediahaven for the fragment based on
+        the dc_identifier_localid (=mediaId in the essence unlinked event).
+        Then we delete the fragment for the fragment id.
+
+
+        Arguments:
+            message {str} -- Essence unlinked event XML message
+        """
+
+        self.log.info(
+            'Start handling essence unlinked event',
+            essence_unlinked_event=message
+        )
+
+        # Parse event
+        event = self._essence_unlinked_parse_event(message)
+        if event is None:
+            return
+
+        media_id = event.media_id
+
+        # Get the fragment based on the media_id
+        fragment = self._essence_unlinked_get_fragment(media_id)
+        if fragment is None:
+            return
+
+        # Retrieve the fragment_id from the MediaHaven object
+        fragment_id = self._essence_unlinked_retrieve_fragment_id(fragment)
+        if fragment_id is None:
+            return
+
+        # Delete the fragment for the fragment_id
+        result = self._essence_unlinked_delete_fragment(fragment_id)
+        if result:
+            self.log.info(f"Successfully deleted fragment with ID: {fragment_id}")
+
+    def _essence_unlinked_parse_event(self, message: str) -> EssenceUnlinkedEvent:
+        try:
+            event = EssenceUnlinkedEvent(message)
+        except XMLSyntaxError as error:
+            self.log.error(
+                "Unable to parse the incoming essence unlinked event",
+                error=error,
+                essence_unlinked_event=message,
+            )
+            return None
+        return event
+
+    def _essence_unlinked_get_fragment(self, media_id: str) -> dict:
+        try:
+            self.log.debug(f"Retrieve fragment with dc_identifier_localid: {media_id}")
+            fragment = self.mh_client.get_fragment('dc_identifier_localid', media_id)
+        except HTTPError as error:
+            self.log.error(
+                f"Unable to retrieve fragment for dc_identifier_localid: {media_id}",
+                error=error,
+                dc_identifier_localid=media_id,
+            )
+            return None
+        return fragment
+
+    def _essence_unlinked_retrieve_fragment_id(self, fragment: dict) -> str:
+        try:
+            fragment_id = fragment["MediaDataList"][0]["Internal"]["FragmentId"]
+        except KeyError as error:
+            self.log.error(
+                "FragmentId not found in the MediaHaven object",
+                error=error,
+                fragment=fragment,
+            )
+            return None
+        return fragment_id
+
+    def _essence_unlinked_delete_fragment(self, fragment_id: str) -> bool:
+        try:
+            self.log.debug(f"Deleting fragment for object with fragment id: {fragment_id}")
+            result = self.mh_client.delete_fragment(fragment_id)
+        except HTTPError as error:
+            self.log.error(
+                f"Unable to delete a fragment for fragment_id: {fragment_id}",
+                error=error,
+                fragment_id=fragment_id,
+            )
+            return False
+        return result
+
     def handle_message(self, channel, method, properties, body):
         """Main method that will handle the incoming messages.
 
@@ -208,20 +298,20 @@ class EventListener:
         routing_key = method.routing_key
         self.log.info(
             f"Incoming message with routing key: {routing_key}",
-            incoming_message=body
+            incoming_message=body,
         )
         if routing_key == self.essence_linked_rk:
             self._handle_linked_event(body)
         elif routing_key == self.essence_unlinked_rk:
-            # TODO process unlinked
-            pass
+            self._handle_unlinked_event(body)
         elif routing_key == self.object_deleted_rk:
             # TODO process deleted
             pass
         else:
+            self.log.warning(f"Unknown routing key: {routing_key}")
             self.log.warning(
                 f"Unknown routing key: {routing_key}",
-                incoming_message=body
+                incoming_message=body,
             )
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
