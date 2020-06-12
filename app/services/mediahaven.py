@@ -72,7 +72,7 @@ class MediahavenClient:
 
         # Construct URL query parameters
         params: dict = {
-            "q": f'%2b({query_key}:"{value}")',
+            "q": f'+({query_key}:"{value}")',
             "nrOfResults": 1,
         }
 
