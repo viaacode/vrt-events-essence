@@ -151,7 +151,7 @@ class MediahavenClient:
         # If there is an HTTP error, raise it
         response.raise_for_status()
 
-        return True
+        return response.status_code == 204
 
     def _construct_metadata(self, media_id: str) -> str:
         """Create the sidecar XML to upload the media id metadata.
