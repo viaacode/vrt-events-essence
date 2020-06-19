@@ -25,26 +25,12 @@ class NackException(Exception):
         self.kwargs = kwargs
 
 
-class EventListener:
-    def __init__(self):
-        configParser = ConfigParser()
-        self.log = logging.get_logger(__name__, config=configParser)
-        self.config = configParser.app_cfg
-        self.mh_client = MediahavenClient(self.config)
-        try:
-            self.rabbit_client = RabbitClient()
-        except AMQPConnectionError as error:
-            self.log.error("Connection to RabbitMQ failed.")
-            raise error
-        self.essence_linked_rk = self.config["rabbitmq"]["essence_linked_routing_key"]
-        self.essence_unlinked_rk = self.config["rabbitmq"]["essence_unlinked_routing_key"]
-        self.object_deleted_rk = self.config["rabbitmq"]["object_deleted_routing_key"]
-        self.get_metadata_rk = self.config["rabbitmq"]["get_metadata_routing_key"]
-
-    def _handle_nack_exception(self, nack_exception, channel, delivery_tag):
-        """ Log an error and send a nack to rabbit """
-        self.log.error(nack_exception.message, **nack_exception.kwargs)
-        channel.basic_nack(delivery_tag=delivery_tag, requeue=False)
+class EssenceLinkedHandler:
+    """ Class that will handle an incoming essence linked event """
+    def __init__(self, logger, mh_client, rabbit_client):
+        self.log = logger
+        self.mh_client = mh_client
+        self.rabbit_client = rabbit_client
 
     def _generate_get_metadata_request_xml(self, timestamp: datetime, correlation_id: str, media_id: str) -> str:
         """ Generates an xml for the getMetaDataRequest event.
@@ -72,7 +58,7 @@ class EventListener:
 
         return xml
 
-    def _handle_linked_event(self, message: str):
+    def handle_event(self, message: str):
         """Handle an incoming essence linked event.
 
         First we parse the XML message into a EssenceLinkedEvent.
@@ -96,28 +82,28 @@ class EventListener:
         )
 
         # Parse event
-        event = self._essence_linked_parse_event(message)
+        event = self._parse_event(message)
 
         filename = event.file
         media_id = event.media_id
 
         # Get the main fragment
-        fragment = self._essence_linked_get_fragment(filename)
+        fragment = self._get_fragment(filename)
 
-        # Retrieve the umid from the MediaHaven object
-        umid = self._essence_linked_retrieve_umid(fragment)
+        # Parse the umid from the MediaHaven object
+        umid = self._parse_umid(fragment)
 
         # Create fragment for main fragment
-        create_fragment_response = self._essence_linked_create_fragment(umid)
+        create_fragment_response = self._create_fragment(umid)
 
-        # Retrieve the fragmentId from the response of the newly created fragment.
-        fragment_id = self._essence_linked_retrieve_fragment_id(create_fragment_response)
+        # Parse the fragmentId from the response of the newly created fragment.
+        fragment_id = self._parse_fragment_id(create_fragment_response)
 
         # Wait a while, otherwise MH returns a 404 when updating.
         time.sleep(3)
 
         # Add Media_id to the newly created fragment
-        result = self._essence_linked_add_metadata(fragment_id, media_id)
+        result = self._add_metadata(fragment_id, media_id)
         if not result:
             raise NackException(
                 f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
@@ -140,7 +126,7 @@ class EventListener:
             media_id=media_id
         )
 
-    def _essence_linked_parse_event(self, message: str) -> EssenceLinkedEvent:
+    def _parse_event(self, message: str) -> EssenceLinkedEvent:
         try:
             event = EssenceLinkedEvent(message)
         except XMLSyntaxError as error:
@@ -151,7 +137,7 @@ class EventListener:
             )
         return event
 
-    def _essence_linked_get_fragment(self, filename: str) -> dict:
+    def _get_fragment(self, filename: str) -> dict:
         try:
             self.log.debug(f"Retrieve fragment with s3 object key: {filename}")
             fragment = self.mh_client.get_fragment('s3_object_key', filename)
@@ -163,7 +149,7 @@ class EventListener:
             )
         return fragment
 
-    def _essence_linked_retrieve_umid(self, fragment: dict) -> str:
+    def _parse_umid(self, fragment: dict) -> str:
         try:
             umid = fragment["MediaDataList"][0]["Internal"]["MediaObjectId"]
         except KeyError as error:
@@ -174,7 +160,7 @@ class EventListener:
             )
         return umid
 
-    def _essence_linked_create_fragment(self, umid: str) -> dict:
+    def _create_fragment(self, umid: str) -> dict:
         try:
             self.log.debug(f"Creating fragment for object with umid: {umid}")
             create_fragment_response = self.mh_client.create_fragment(umid)
@@ -186,7 +172,7 @@ class EventListener:
             )
         return create_fragment_response
 
-    def _essence_linked_retrieve_fragment_id(self, create_fragment_response: dict) -> str:
+    def _parse_fragment_id(self, create_fragment_response: dict) -> str:
         try:
             fragment_id = create_fragment_response["Internal"]["FragmentId"]
             self.log.debug(f"Fragment created with id: {fragment_id}")
@@ -198,7 +184,7 @@ class EventListener:
             )
         return fragment_id
 
-    def _essence_linked_add_metadata(self, fragment_id: str, media_id: str) -> bool:
+    def _add_metadata(self, fragment_id: str, media_id: str) -> bool:
         try:
             result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id)
         except HTTPError as error:
@@ -210,7 +196,14 @@ class EventListener:
             )
         return result
 
-    def _handle_unlinked_event(self, message: str):
+
+class EssenceUnlinkedHandler:
+    """ Class that will handle an incoming essence unlinked event """
+    def __init__(self, logger, mh_client):
+        self.log = logger
+        self.mh_client = mh_client
+
+    def handle_event(self, message: str):
         """Handle an incoming essence unlinked event.
 
         First we parse the XML message into a EssenceUnlinkedEvent.
@@ -232,18 +225,18 @@ class EventListener:
         )
 
         # Parse event
-        event = self._essence_unlinked_parse_event(message)
+        event = self._parse_event(message)
 
         media_id = event.media_id
 
         # Get the fragment based on the media_id
-        fragment = self._essence_unlinked_get_fragment(media_id)
+        fragment = self._get_fragment(media_id)
 
-        # Retrieve the fragment_id from the MediaHaven object
-        fragment_id = self._essence_unlinked_retrieve_fragment_id(fragment)
+        # Parse the fragment_id from the MediaHaven object
+        fragment_id = self._parse_fragment_id(fragment)
 
         # Delete the fragment for the fragment_id
-        result = self._essence_unlinked_delete_fragment(fragment_id)
+        result = self._delete_fragment(fragment_id)
         if not result:
             raise NackException(
                 f"Unable to delete the fragment for fragment id: {fragment_id}",
@@ -252,7 +245,7 @@ class EventListener:
 
         self.log.info(f"Successfully deleted fragment with ID: {fragment_id}")
 
-    def _essence_unlinked_parse_event(self, message: str) -> EssenceUnlinkedEvent:
+    def _parse_event(self, message: str) -> EssenceUnlinkedEvent:
         try:
             event = EssenceUnlinkedEvent(message)
         except XMLSyntaxError as error:
@@ -263,7 +256,7 @@ class EventListener:
             )
         return event
 
-    def _essence_unlinked_get_fragment(self, media_id: str) -> dict:
+    def _get_fragment(self, media_id: str) -> dict:
         try:
             self.log.debug(f"Retrieve fragment with dc_identifier_localid: {media_id}")
             fragment = self.mh_client.get_fragment('dc_identifier_localid', media_id)
@@ -275,7 +268,7 @@ class EventListener:
             )
         return fragment
 
-    def _essence_unlinked_retrieve_fragment_id(self, fragment: dict) -> str:
+    def _parse_fragment_id(self, fragment: dict) -> str:
         try:
             fragment_id = fragment["MediaDataList"][0]["Internal"]["FragmentId"]
         except KeyError as error:
@@ -286,7 +279,7 @@ class EventListener:
             )
         return fragment_id
 
-    def _essence_unlinked_delete_fragment(self, fragment_id: str) -> bool:
+    def _delete_fragment(self, fragment_id: str) -> bool:
         try:
             self.log.debug(f"Deleting fragment for object with fragment id: {fragment_id}")
             result = self.mh_client.delete_fragment(fragment_id)
@@ -297,6 +290,28 @@ class EventListener:
                 fragment_id=fragment_id,
             )
         return result
+
+
+class EventListener:
+    def __init__(self):
+        configParser = ConfigParser()
+        self.config = configParser.app_cfg
+        self.log = logging.get_logger(__name__, config=configParser)
+        self.mh_client = MediahavenClient(self.config)
+        try:
+            self.rabbit_client = RabbitClient()
+        except AMQPConnectionError as error:
+            self.log.error("Connection to RabbitMQ failed.")
+            raise error
+        self.essence_linked_rk = self.config["rabbitmq"]["essence_linked_routing_key"]
+        self.essence_unlinked_rk = self.config["rabbitmq"]["essence_unlinked_routing_key"]
+        self.object_deleted_rk = self.config["rabbitmq"]["object_deleted_routing_key"]
+        self.get_metadata_rk = self.config["rabbitmq"]["get_metadata_routing_key"]
+
+    def _handle_nack_exception(self, nack_exception, channel, delivery_tag):
+        """ Log an error and send a nack to rabbit """
+        self.log.error(nack_exception.message, **nack_exception.kwargs)
+        channel.basic_nack(delivery_tag=delivery_tag, requeue=False)
 
     def handle_message(self, channel, method, properties, body):
         """Main method that will handle the incoming messages.
@@ -311,13 +326,15 @@ class EventListener:
             incoming_message=body,
         )
         if routing_key == self.essence_linked_rk:
+            handler = EssenceLinkedHandler(self.log, self.mh_client, self.rabbit_client)
             try:
-                self._handle_linked_event(body)
+                handler.handle_event(body)
             except(NackException) as e:
                 self._handle_nack_exception(e, channel, method.delivery_tag)
         elif routing_key == self.essence_unlinked_rk:
+            handler = EssenceUnlinkedHandler(self.log, self.mh_client)
             try:
-                self._handle_unlinked_event(body)
+                handler.handle_event(body)
             except(NackException) as e:
                 self._handle_nack_exception(e, channel, method.delivery_tag)
         elif routing_key == self.object_deleted_rk:
