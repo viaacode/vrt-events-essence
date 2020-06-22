@@ -27,10 +27,11 @@ class NackException(Exception):
 
 class EssenceLinkedHandler:
     """ Class that will handle an incoming essence linked event """
-    def __init__(self, logger, mh_client, rabbit_client):
+    def __init__(self, logger, mh_client, rabbit_client, routing_key):
         self.log = logger
         self.mh_client = mh_client
         self.rabbit_client = rabbit_client
+        self.routing_key = routing_key
 
     def _generate_get_metadata_request_xml(self, timestamp: datetime, correlation_id: str, media_id: str) -> str:
         """ Generates an xml for the getMetaDataRequest event.
@@ -119,7 +120,7 @@ class EssenceLinkedHandler:
         )
 
         # Send metadata request to the queue
-        self.rabbit_client.send_message(xml, self.get_metadata_rk)
+        self.rabbit_client.send_message(xml, self.routing_key)
         self.log.info(
             f"getMetadataRequest sent for fragment id: {fragment_id}",
             fragment_id=fragment_id,
@@ -326,7 +327,12 @@ class EventListener:
             incoming_message=body,
         )
         if routing_key == self.essence_linked_rk:
-            handler = EssenceLinkedHandler(self.log, self.mh_client, self.rabbit_client)
+            handler = EssenceLinkedHandler(
+                self.log,
+                self.mh_client,
+                self.rabbit_client,
+                self.get_metadata_rk
+            )
             try:
                 handler.handle_event(body)
             except(NackException) as e:

@@ -147,11 +147,11 @@ class TestEventListener:
 
 class TestEventLinkedHandler:
     @pytest.fixture
-    @patch('app.app.MediahavenClient')
-    @patch('app.app.RabbitClient')
-    def handler(self, rabbit_client, mh_client):
-        """ Creates an essence linked handler with a mocked MH client"""
-        return EssenceLinkedHandler(MagicMock(), mh_client, rabbit_client)
+    def handler(self):
+        """ Creates an essence linked handler with a mocked logger, rabbit client
+        and MH client.
+        """
+        return EssenceLinkedHandler(MagicMock(), MagicMock(), MagicMock(), "routing_key")
 
     def test_generate_get_metadata_request_xml(self, handler):
         # Create getMetadataRequest XML
@@ -179,6 +179,36 @@ class TestEventLinkedHandler:
         event = b""
         with pytest.raises(NackException):
             handler._parse_event(event)
+
+    @patch.object(EssenceLinkedHandler, "_parse_event")
+    @patch.object(EssenceLinkedHandler, "_get_fragment")
+    @patch.object(EssenceLinkedHandler, "_parse_umid")
+    @patch.object(EssenceLinkedHandler, "_create_fragment")
+    @patch.object(EssenceLinkedHandler, "_parse_fragment_id")
+    @patch.object(EssenceLinkedHandler, "_add_metadata", return_value=True)
+    @patch.object(EssenceLinkedHandler, "_generate_get_metadata_request_xml", return_value="xml")
+    def test_handle_event_update(
+        self,
+        mock_generate_get_metadata_request_xml,
+        mock_add_metadata,
+        mock_parse_fragment_id,
+        mock_create_fragment,
+        mock_parse_umid,
+        mock_get_fragment,
+        mock_parse_event,
+        handler
+    ):
+        handler.handle_event("irrelevant")
+        assert mock_parse_event.call_count == 1
+        assert mock_get_fragment.call_count == 1
+        assert mock_parse_umid.call_count == 1
+        assert mock_create_fragment.call_count == 1
+        assert mock_parse_fragment_id.call_count == 1
+        assert mock_add_metadata.call_count == 1
+        assert mock_generate_get_metadata_request_xml.call_count == 1
+        assert handler.rabbit_client.send_message.call_count == 1
+        assert handler.rabbit_client.send_message.call_args[0][0] == "xml"
+        assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
 
     @patch.object(EssenceLinkedHandler, "_parse_event")
     @patch.object(EssenceLinkedHandler, "_get_fragment")
@@ -307,10 +337,9 @@ class TestEventLinkedHandler:
 
 class TestEventUnlinkedHandler:
     @pytest.fixture
-    @patch('app.app.MediahavenClient')
-    def handler(self, mh_client):
-        """ Creates an essence linked handler with a mocked MH client"""
-        return EssenceUnlinkedHandler(MagicMock(), mh_client)
+    def handler(self):
+        """ Creates an essence linked handler with a mocked logger and MH client """
+        return EssenceUnlinkedHandler(MagicMock(), MagicMock())
 
     def test_parse_event(self, handler):
         event = load_xml_resource("essenceUnlinkedEvent.xml")
