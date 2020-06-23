@@ -326,13 +326,44 @@ class TestEventLinkedHandler:
         media_id = "media id"
 
         # Raise a HTTP Error when calling method
-        mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError
+        response = MagicMock()
+        response.status_code = 400
+        mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError(response=response)
 
         with pytest.raises(NackException):
             handler._add_metadata(fragment_id, media_id)
         assert mh_client_mock.add_metadata_to_fragment.call_count == 1
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
+
+    @patch('time.sleep')
+    def test_add_metadata_http_error_retry(self, time_sleep_mock, handler):
+        mh_client_mock = handler.mh_client
+        fragment_id = "fragment id"
+        media_id = "media id"
+
+        # Raise a HTTP Error when calling method
+        response = MagicMock()
+        response.status_code = 404
+        mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError(response=response)
+
+        assert not handler._add_metadata(fragment_id, media_id)
+        assert mh_client_mock.add_metadata_to_fragment.call_count == 5
+        assert time_sleep_mock.call_count == 5
+        # Test exponential backoff
+        assert time_sleep_mock.call_args_list[0][0][0] == 1
+        assert time_sleep_mock.call_args_list[1][0][0] == 2
+        assert time_sleep_mock.call_args_list[2][0][0] == 4
+        assert time_sleep_mock.call_args_list[3][0][0] == 8
+        assert time_sleep_mock.call_args_list[4][0][0] == 16
+
+        # Test if wrote a DEBUG log entry for every try
+        assert handler.log.debug.call_count == 5
+        assert handler.log.debug.call_args_list[0][1]["try_count"] == 1
+        assert handler.log.debug.call_args_list[1][1]["try_count"] == 2
+        assert handler.log.debug.call_args_list[2][1]["try_count"] == 3
+        assert handler.log.debug.call_args_list[3][1]["try_count"] == 4
+        assert handler.log.debug.call_args_list[4][1]["try_count"] == 5
 
 
 class TestEventUnlinkedHandler:
