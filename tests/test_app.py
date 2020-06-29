@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 from lxml import etree
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, RequestException
 
 from app.app import (
     EventListener,
@@ -38,6 +38,31 @@ class TestEventListener:
         assert mock_channel.basic_nack.call_count == 1
         assert mock_channel.basic_nack.call_args[1]["delivery_tag"] == 1
         assert not mock_channel.basic_nack.call_args[1]["requeue"]
+
+        # Assert error logged
+        record = caplog.records[0]
+        assert record.level == "error"
+        assert record.message == error_message
+        assert record.error_id == error_id
+
+    @patch('time.sleep')
+    def test_handle_nack_exception_requeue(self, time_mock, event_listener, caplog):
+        mock_channel = MagicMock()
+        delivery_tag = 1
+        error_message = "error message"
+        error_id = "error id"
+        exception = NackException(error_message, requeue=True, error_id=error_id)
+
+        event_listener._handle_nack_exception(exception, mock_channel, delivery_tag)
+
+        # Assert nack being sent
+        assert mock_channel.basic_nack.call_count == 1
+        assert mock_channel.basic_nack.call_args[1]["delivery_tag"] == 1
+        assert mock_channel.basic_nack.call_args[1]["requeue"]
+
+        # Assert delay when resending on queue
+        assert time_mock.call_count == 1
+        assert time_mock.call_args[0][0] == 10
 
         # Assert error logged
         record = caplog.records[0]
@@ -177,8 +202,9 @@ class TestEventLinkedHandler:
 
     def test_parse_event_invalid(self, handler):
         event = b""
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._parse_event(event)
+        assert not error.value.requeue
 
     @patch.object(EssenceLinkedHandler, "_parse_event")
     @patch.object(EssenceLinkedHandler, "_get_fragment")
@@ -232,8 +258,9 @@ class TestEventLinkedHandler:
         but not a 204, it will be seen as unsuccessful. In this case it should
         stop the handling flow and send a nack to rabbit
         """
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler.handle_event("irrelevant")
+        assert not error.value.requeue
         assert mock_parse_event.call_count == 1
         assert mock_get_fragment.call_count == 1
         assert mock_parse_umid.call_count == 1
@@ -270,8 +297,9 @@ class TestEventLinkedHandler:
     def test_parse_umid_key_error(self, handler):
         object_id = "object id"
         fragment = {"wrong": object_id}
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._parse_umid(fragment)
+        assert not error.value.requeue
 
     def test_create_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -291,8 +319,22 @@ class TestEventLinkedHandler:
         # Raise a HTTP Error when calling method
         mh_client_mock.create_fragment.side_effect = HTTPError
 
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._create_fragment(umid)
+        assert not error.value.requeue
+        assert mh_client_mock.create_fragment.call_count == 1
+        assert mh_client_mock.create_fragment.call_args[0][0] == umid
+
+    def test_create_fragment_requests_exception(self, handler):
+        mh_client_mock = handler.mh_client
+        umid = "umid"
+
+        # Raise a HTTP Error when calling method
+        mh_client_mock.create_fragment.side_effect = RequestException
+
+        with pytest.raises(NackException) as error:
+            handler._create_fragment(umid)
+        assert error.value.requeue
         assert mh_client_mock.create_fragment.call_count == 1
         assert mh_client_mock.create_fragment.call_args[0][0] == umid
 
@@ -304,8 +346,9 @@ class TestEventLinkedHandler:
     def test_parse_fragment_id_key_error(self, handler):
         fragment_id = "fragment id"
         response = {"wrong": fragment_id}
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._parse_fragment_id(response)
+        assert not error.value.requeue
 
     def test_add_metadata(self, handler):
         mh_client_mock = handler.mh_client
@@ -330,8 +373,9 @@ class TestEventLinkedHandler:
         response.status_code = 400
         mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError(response=response)
 
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._add_metadata(fragment_id, media_id)
+        assert not error.value.requeue
         assert mh_client_mock.add_metadata_to_fragment.call_count == 1
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
@@ -380,8 +424,9 @@ class TestEventUnlinkedHandler:
 
     def test_parse_event_invalid(self, handler):
         event = b""
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._parse_event(event)
+        assert not error.value.requeue
 
     def test_get_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -397,8 +442,9 @@ class TestEventUnlinkedHandler:
         # Raise a HTTP Error when calling method
         handler.mh_client.get_fragment.side_effect = HTTPError
 
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._get_fragment("media_id")
+        assert not error.value.requeue
         assert mh_client_mock.get_fragment.call_count == 1
         assert mh_client_mock.get_fragment.call_args[0][0] == "dc_identifier_localid"
         assert mh_client_mock.get_fragment.call_args[0][1] == "media_id"
@@ -411,8 +457,9 @@ class TestEventUnlinkedHandler:
     def test_parse_fragment_id_key_error(self, handler):
         fragment_id = "fragment id"
         response = {"wrong": fragment_id}
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._parse_fragment_id(response)
+        assert not error.value.requeue
 
     def test_delete_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -432,8 +479,22 @@ class TestEventUnlinkedHandler:
         # Raise a HTTP Error when calling method
         mh_client_mock.delete_fragment.side_effect = HTTPError
 
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._delete_fragment(fragment_id)
+        assert not error.value.requeue
+        assert mh_client_mock.delete_fragment.call_count == 1
+        assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
+
+    def test_delete_fragment_request_exception(self, handler):
+        mh_client_mock = handler.mh_client
+        fragment_id = "fragment id"
+
+        # Raise a HTTP Error when calling method
+        mh_client_mock.delete_fragment.side_effect = RequestException
+
+        with pytest.raises(NackException) as error:
+            handler._delete_fragment(fragment_id)
+        assert error.value.requeue
         assert mh_client_mock.delete_fragment.call_count == 1
         assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
 
@@ -453,8 +514,9 @@ class TestEventUnlinkedHandler:
         but not a 204, it will be seen as unsuccessful. In this case it should
         stop the handling flow and send a nack to rabbit
         """
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler.handle_event("irrelevant")
+        assert not error.value.requeue
         assert mock_parse_event.call_count == 1
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1

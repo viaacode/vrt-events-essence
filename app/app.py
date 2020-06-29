@@ -7,7 +7,7 @@ from datetime import datetime
 
 from lxml.etree import XMLSyntaxError
 from pika.exceptions import AMQPConnectionError
-from requests.exceptions import HTTPError
+from requests.exceptions import HTTPError, RequestException
 
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
@@ -27,8 +27,9 @@ class NackException(Exception):
     """ Exception raised when there is a situation in which handling
     of the event should be stopped.
     """
-    def __init__(self, message, **kwargs):
+    def __init__(self, message, requeue=False, **kwargs):
         self.message = message
+        self.requeue = requeue
         self.kwargs = kwargs
 
 
@@ -175,6 +176,13 @@ class EssenceLinkedHandler:
                 error=error,
                 umid=umid,
             )
+        except RequestException as error:
+            raise NackException(
+                "Unable to connect to MediaHaven",
+                error=error,
+                umid=umid,
+                requeue=True
+            )
         return create_fragment_response
 
     def _parse_fragment_id(self, create_fragment_response: dict) -> str:
@@ -316,6 +324,13 @@ class EssenceUnlinkedHandler:
                 error=error,
                 fragment_id=fragment_id,
             )
+        except RequestException as error:
+            raise NackException(
+                "Unable to connect to MediaHaven",
+                error=error,
+                fragment_id=fragment_id,
+                requeue=True
+            )
         return result
 
 
@@ -338,7 +353,9 @@ class EventListener:
     def _handle_nack_exception(self, nack_exception, channel, delivery_tag):
         """ Log an error and send a nack to rabbit """
         self.log.error(nack_exception.message, **nack_exception.kwargs)
-        channel.basic_nack(delivery_tag=delivery_tag, requeue=False)
+        if nack_exception.requeue:
+            time.sleep(10)
+        channel.basic_nack(delivery_tag=delivery_tag, requeue=nack_exception.requeue)
 
     def handle_message(self, channel, method, properties, body):
         """Main method that will handle the incoming messages.

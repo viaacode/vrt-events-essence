@@ -34,38 +34,6 @@ class RabbitClient:
 
         self.channel = self.connection.channel()
 
-        self.__setup_rabbit_exchanges()
-
-    def __setup_rabbit_exchanges(self):
-        self.channel.exchange_declare(
-            exchange=self.rabbitConfig["exchange"],
-            exchange_type=self.rabbitConfig["exchange_type"],
-            durable=True,
-        )
-
-        self.channel.queue_declare(
-            queue=self.rabbitConfig["queue"],
-            durable=True,
-        )
-
-        self.channel.queue_bind(
-            exchange=self.rabbitConfig["exchange"],
-            queue=self.rabbitConfig["queue"],
-            routing_key=self.rabbitConfig["essence_linked_routing_key"],
-        )
-
-        self.channel.queue_bind(
-            exchange=self.rabbitConfig["exchange"],
-            queue=self.rabbitConfig["queue"],
-            routing_key=self.rabbitConfig["essence_unlinked_routing_key"],
-        )
-
-        self.channel.queue_bind(
-            exchange=self.rabbitConfig["exchange"],
-            queue=self.rabbitConfig["queue"],
-            routing_key=self.rabbitConfig["object_deleted_routing_key"],
-        )
-
     def send_message(self, body, routing_key):
         try:
             self.channel.basic_publish(
