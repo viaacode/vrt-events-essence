@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import functools
 import time
 from datetime import datetime
 
@@ -14,6 +15,12 @@ from app.helpers.events_parser import EssenceLinkedEvent, EssenceUnlinkedEvent
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from app.services.mediahaven import MediahavenClient
+
+
+class RetryException(Exception):
+    """ Exception raised when an action needs to be retried
+    in combination with _retry decorator"""
+    pass
 
 
 class NackException(Exception):
@@ -100,9 +107,6 @@ class EssenceLinkedHandler:
         # Parse the fragmentId from the response of the newly created fragment.
         fragment_id = self._parse_fragment_id(create_fragment_response)
 
-        # Wait a while, otherwise MH returns a 404 when updating.
-        time.sleep(3)
-
         # Add Media_id to the newly created fragment
         result = self._add_metadata(fragment_id, media_id)
         if not result:
@@ -185,16 +189,38 @@ class EssenceLinkedHandler:
             )
         return fragment_id
 
+    def _retry(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            delay = 1
+            backoff = 2
+            number_of_tries = 5
+            tries = 5
+            while tries:
+                tries -= 1
+                try:
+                    return func(self, *args, **kwargs)
+                except RetryException as error:
+                    self.log.debug(f"{error}. Retrying in {delay} seconds.", try_count = number_of_tries - tries)
+                    time.sleep(delay)
+                    delay *= backoff
+            return False
+        return wrapper
+
+    @_retry
     def _add_metadata(self, fragment_id: str, media_id: str) -> bool:
         try:
             result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id)
         except HTTPError as error:
-            raise NackException(
-                f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
-                error=error,
-                fragment_id=fragment_id,
-                media_id=media_id,
-            )
+            if error.response.status_code == 404:
+                raise RetryException(f"Unable to update metadata for fragment_id: {fragment_id}")
+            else:
+                raise NackException(
+                    f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
+                    error=error,
+                    fragment_id=fragment_id,
+                    media_id=media_id,
+                )
         return result
 
 
