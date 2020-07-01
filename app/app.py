@@ -3,6 +3,7 @@
 
 import functools
 import time
+from abc import ABC, abstractmethod
 from datetime import datetime
 
 from lxml.etree import XMLSyntaxError
@@ -11,7 +12,12 @@ from requests.exceptions import HTTPError, RequestException
 
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
-from app.helpers.events_parser import EssenceLinkedEvent, EssenceUnlinkedEvent
+from app.helpers.events_parser import (
+    EssenceEvent,
+    EssenceLinkedEvent,
+    EssenceUnlinkedEvent,
+    ObjectDeletedEvent,
+)
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from app.services.mediahaven import MediahavenClient
@@ -33,7 +39,17 @@ class NackException(Exception):
         self.kwargs = kwargs
 
 
-class EssenceLinkedHandler:
+class BaseHandler(ABC):
+    """ Abstract base class that will handle an incoming event """
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def handle_event(self, message: str):
+        pass
+
+
+class EssenceLinkedHandler(BaseHandler):
     """ Class that will handle an incoming essence linked event """
     def __init__(self, logger, mh_client, rabbit_client, routing_key):
         self.log = logger
@@ -209,7 +225,10 @@ class EssenceLinkedHandler:
                 try:
                     return func(self, *args, **kwargs)
                 except RetryException as error:
-                    self.log.debug(f"{error}. Retrying in {delay} seconds.", try_count = number_of_tries - tries)
+                    self.log.debug(
+                        f"{error}. Retrying in {delay} seconds.",
+                        try_count=number_of_tries - tries
+                    )
                     time.sleep(delay)
                     delay *= backoff
             return False
@@ -232,32 +251,29 @@ class EssenceLinkedHandler:
         return result
 
 
-class EssenceUnlinkedHandler:
-    """ Class that will handle an incoming essence unlinked event """
+class DeleteFragmentHandler(BaseHandler):
+    """ Abstract class that will handle an incoming event that will result in deleting
+    a fragment. Possible events: EssenceUnlinkedEvent and ObjectDeletedEvent.
+     """
     def __init__(self, logger, mh_client):
         self.log = logger
         self.mh_client = mh_client
 
     def handle_event(self, message: str):
-        """Handle an incoming essence unlinked event.
+        """Handle an incoming event resulting in deleting the fragment.
 
-        First we parse the XML message into a EssenceUnlinkedEvent.
+        First we parse the XML message into its respective EssenceEvent.
         Then we search in mediahaven for the fragment based on
-        the dc_identifier_localid (=mediaId in the essence unlinked event).
+        the dc_identifier_localid (=mediaId in the event).
         Then we delete the fragment for the fragment id.
 
 
         Arguments:
-            message {str} -- Essence unlinked event XML message.
+            message {str} -- Incoming XML message.
 
         Raises:
             NackException -- When something happens that stops the handling.
         """
-
-        self.log.info(
-            'Start handling essence unlinked event',
-            essence_unlinked_event=message
-        )
 
         # Parse event
         event = self._parse_event(message)
@@ -280,16 +296,9 @@ class EssenceUnlinkedHandler:
 
         self.log.info(f"Successfully deleted fragment with ID: {fragment_id}")
 
-    def _parse_event(self, message: str) -> EssenceUnlinkedEvent:
-        try:
-            event = EssenceUnlinkedEvent(message)
-        except XMLSyntaxError as error:
-            raise NackException(
-                "Unable to parse the incoming essence unlinked event",
-                error=error,
-                essence_unlinked_event=message,
-            )
-        return event
+    @abstractmethod
+    def _parse_event(self, message: str) -> EssenceEvent:
+        pass
 
     def _get_fragment(self, media_id: str) -> dict:
         try:
@@ -334,6 +343,54 @@ class EssenceUnlinkedHandler:
         return result
 
 
+class EssenceUnlinkedHandler(DeleteFragmentHandler):
+    """ Class that will handle an incoming essence unlinked event """
+    def _parse_event(self, message: str) -> EssenceUnlinkedEvent:
+        self.log.info(
+            'Start handling essence unlinked event',
+            essence_unlinked_event=message
+        )
+        try:
+            event = EssenceUnlinkedEvent(message)
+        except XMLSyntaxError as error:
+            raise NackException(
+                "Unable to parse the incoming essence unlinked event",
+                error=error,
+                essence_unlinked_event=message,
+            )
+        return event
+
+
+class ObjectDeletedHandler(DeleteFragmentHandler):
+    """ Class that will handle an incoming object deleted event """
+    def _parse_event(self, message: str) -> ObjectDeletedEvent:
+        self.log.info(
+            'Start handling object deleted event',
+            object_deleted_event=message
+        )
+        try:
+            event = ObjectDeletedEvent(message)
+        except XMLSyntaxError as error:
+            raise NackException(
+                "Unable to parse the incoming object deleted event",
+                error=error,
+                object_deleted_event=message,
+            )
+        return event
+
+
+class UnknownRoutingKeyHandler:
+    """ Class that will handle an incoming event with an unknown routing key """
+    def __init__(self, routing_key: str):
+        self.routing_key = routing_key
+
+    def handle_event(self, message: str):
+        raise NackException(
+            f"Unknown routing key: {self.routing_key}",
+            incoming_message=message
+        )
+
+
 class EventListener:
     def __init__(self):
         configParser = ConfigParser()
@@ -357,44 +414,39 @@ class EventListener:
             time.sleep(10)
         channel.basic_nack(delivery_tag=delivery_tag, requeue=nack_exception.requeue)
 
+    def _calculate_handler(self, routing_key: str):
+        """ Return the correct handler given the routing key """
+        if routing_key == self.essence_linked_rk:
+            return EssenceLinkedHandler(
+                self.log,
+                self.mh_client,
+                self.rabbit_client,
+                self.get_metadata_rk
+            )
+        if routing_key == self.essence_unlinked_rk:
+            return EssenceUnlinkedHandler(self.log, self.mh_client)
+        if routing_key == self.object_deleted_rk:
+            return ObjectDeletedHandler(self.log, self.mh_client)
+        return UnknownRoutingKeyHandler(routing_key)
+
     def handle_message(self, channel, method, properties, body):
         """Main method that will handle the incoming messages.
 
         Based on the routing key it will process the message accordingly.
         There are three types of events this app will process:
-        essenceLinked, essenceUnLinked and objectDeleted.
+        essenceLinked, essenceUnlinked and objectDeleted.
         """
         routing_key = method.routing_key
         self.log.info(
             f"Incoming message with routing key: {routing_key}",
             incoming_message=body,
         )
-        if routing_key == self.essence_linked_rk:
-            handler = EssenceLinkedHandler(
-                self.log,
-                self.mh_client,
-                self.rabbit_client,
-                self.get_metadata_rk
-            )
-            try:
-                handler.handle_event(body)
-            except(NackException) as e:
-                self._handle_nack_exception(e, channel, method.delivery_tag)
-        elif routing_key == self.essence_unlinked_rk:
-            handler = EssenceUnlinkedHandler(self.log, self.mh_client)
-            try:
-                handler.handle_event(body)
-            except(NackException) as e:
-                self._handle_nack_exception(e, channel, method.delivery_tag)
-        elif routing_key == self.object_deleted_rk:
-            # TODO process deleted
-            pass
-        else:
-            self.log.warning(
-                f"Unknown routing key: {routing_key}",
-                incoming_message=body,
-            )
-            channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+        handler = self._calculate_handler(routing_key)
+        try:
+            handler.handle_event(body)
+        except(NackException) as e:
+            self._handle_nack_exception(e, channel, method.delivery_tag)
+            return
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
     def start(self):

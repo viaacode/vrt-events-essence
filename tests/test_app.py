@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from abc import ABC
 from io import BytesIO
 from datetime import datetime
 from unittest.mock import patch, MagicMock
@@ -10,10 +11,12 @@ from lxml import etree
 from requests.exceptions import HTTPError, RequestException
 
 from app.app import (
+    EssenceLinkedHandler,
+    EssenceUnlinkedHandler,
     EventListener,
     NackException,
-    EssenceLinkedHandler,
-    EssenceUnlinkedHandler
+    ObjectDeletedHandler,
+    UnknownRoutingKeyHandler,
 )
 from tests.resources.resources import load_xml_resource, construct_filename
 
@@ -154,6 +157,48 @@ class TestEventListener:
         assert mock_nack.call_args[0][2] == mock_channel
         assert mock_nack.call_args[0][3] == 1
 
+    @patch.object(ObjectDeletedHandler, "handle_event")
+    def test_handle_message_object_deleted(self, mock_handle_event, event_listener):
+        """ Tests if an object deleted event gets interpreted as such """
+        routing_key = "object_deleted_routing_key"
+        event_listener.object_deleted_rk = routing_key
+
+        mock_channel = MagicMock()
+        mock_method = MagicMock()
+        mock_method.delivery_tag = 1
+        mock_method.routing_key = routing_key
+        object_deleted_event = load_xml_resource("objectDeletedEvent.xml")
+
+        event_listener.handle_message(mock_channel, mock_method, None, object_deleted_event)
+
+        assert mock_handle_event.call_count == 1
+        assert mock_handle_event.call_args[0][0] == object_deleted_event
+
+        assert mock_channel.basic_ack.call_count == 1
+        assert mock_channel.basic_ack.call_args[1]["delivery_tag"] == 1
+
+    @patch.object(ObjectDeletedHandler, 'handle_event', side_effect=NackException("error"))
+    @patch.object(EventListener, '_handle_nack_exception', autospec=True)
+    def test_handle_message_object_deleted_nack(self, mock_nack, mock_handle_event, event_listener):
+        """ When a nack exception occurs when handling a object deleted event
+        it should handle the exception accordingly.
+        """
+        routing_key = "object_deleted_routing_key"
+        event_listener.object_deleted_rk = routing_key
+
+        mock_channel = MagicMock()
+        mock_method = MagicMock()
+        mock_method.delivery_tag = 1
+        mock_method.routing_key = routing_key
+        object_deleted_event = load_xml_resource("objectDeletedEvent.xml")
+
+        event_listener.handle_message(mock_channel, mock_method, None, object_deleted_event)
+
+        assert mock_nack.call_count == 1
+        assert mock_nack.call_args[0][1].message == "error"
+        assert mock_nack.call_args[0][2] == mock_channel
+        assert mock_nack.call_args[0][3] == 1
+
     def test_handle_message_unknown_routing_key(self, event_listener, caplog):
         mock_channel = MagicMock()
         mock_method = MagicMock()
@@ -185,7 +230,7 @@ class TestEventLinkedHandler:
         )
 
         # Load in XML schema
-        schema = etree.XMLSchema(file=construct_filename("getMetadataRequest.xsd"))
+        schema = etree.XMLSchema(file=construct_filename("essenceEvents.xsd"))
 
         # Parse getMetadataRequest XML as tree
         tree = etree.parse(BytesIO(xml.encode("utf-8")))
@@ -410,17 +455,7 @@ class TestEventLinkedHandler:
         assert handler.log.debug.call_args_list[4][1]["try_count"] == 5
 
 
-class TestEventUnlinkedHandler:
-    @pytest.fixture
-    def handler(self):
-        """ Creates an essence linked handler with a mocked logger and MH client """
-        return EssenceUnlinkedHandler(MagicMock(), MagicMock())
-
-    def test_parse_event(self, handler):
-        event = load_xml_resource("essenceUnlinkedEvent.xml")
-        event = handler._parse_event(event)
-        assert event is not None
-        assert event.media_id == "media id"
+class AbstractTestDeleteFragmentHandler(ABC):
 
     def test_parse_event_invalid(self, handler):
         event = b""
@@ -498,6 +533,19 @@ class TestEventUnlinkedHandler:
         assert mh_client_mock.delete_fragment.call_count == 1
         assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
 
+
+class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
+    @pytest.fixture
+    def handler(self):
+        """ Creates an essence unlinked handler with a mocked logger and MH client """
+        return EssenceUnlinkedHandler(MagicMock(), MagicMock())
+
+    def test_parse_event(self, handler):
+        event = load_xml_resource("essenceUnlinkedEvent.xml")
+        event = handler._parse_event(event)
+        assert event is not None
+        assert event.media_id == "media id"
+
     @patch.object(EssenceUnlinkedHandler, "_parse_event")
     @patch.object(EssenceUnlinkedHandler, "_get_fragment")
     @patch.object(EssenceUnlinkedHandler, "_parse_fragment_id")
@@ -521,3 +569,52 @@ class TestEventUnlinkedHandler:
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1
         assert mock_delete_fragment.call_count == 1
+
+
+class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
+    @pytest.fixture
+    def handler(self):
+        """ Creates an object deleted handler with a mocked logger and MH client """
+        return ObjectDeletedHandler(MagicMock(), MagicMock())
+
+    def test_parse_event(self, handler):
+        event = load_xml_resource("objectDeletedEvent.xml")
+        event = handler._parse_event(event)
+        assert event is not None
+        assert event.media_id == "media id"
+
+    @patch.object(ObjectDeletedHandler, "_parse_event")
+    @patch.object(ObjectDeletedHandler, "_get_fragment")
+    @patch.object(ObjectDeletedHandler, "_parse_fragment_id")
+    @patch.object(ObjectDeletedHandler, "_delete_fragment",  return_value=False)
+    def test_handle_event_delete_false(
+        self,
+        mock_delete_fragment,
+        mock_parse_fragment,
+        mock_get_fragment,
+        mock_parse_event,
+        handler
+    ):
+        """ If the delete fragment call to MH returns a status code in the 200 range
+        but not a 204, it will be seen as unsuccessful. In this case it should
+        stop the handling flow and send a nack to rabbit
+        """
+        with pytest.raises(NackException) as error:
+            handler.handle_event("irrelevant")
+        assert not error.value.requeue
+        assert mock_parse_event.call_count == 1
+        assert mock_get_fragment.call_count == 1
+        assert mock_parse_fragment.call_count == 1
+        assert mock_delete_fragment.call_count == 1
+
+
+class TestUnknownRoutingKeyHandler:
+    def test_handle_event(self, caplog):
+        unknown_routing_key = "routing_key"
+        message = "message"
+        handler = UnknownRoutingKeyHandler(unknown_routing_key)
+        with pytest.raises(NackException) as error:
+            handler.handle_event(message)
+        assert not error.value.requeue
+        assert unknown_routing_key in error.value.message
+        assert error.value.kwargs["incoming_message"] == message

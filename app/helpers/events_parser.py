@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from abc import ABC
 from io import BytesIO
 from lxml import etree
 
@@ -13,7 +14,7 @@ XPATHS = {
 }
 
 
-class EssenceEvent:
+class EssenceEvent(ABC):
     """Abstract class for an XML Essence Event"""
     def __init__(self, xml):
         self.xml_element = self._get_essence_linked_event(xml)
@@ -47,10 +48,10 @@ class EssenceLinkedEvent(EssenceEvent):
 
 
 class EssenceUnlinkedEvent(EssenceEvent):
-    """Convenience class for an XML Essence Linked Event"""
+    """Convenience class for an XML Essence Unlinked Event"""
     root_tag = "essenceUnlinkedEvent"
 
 
 class ObjectDeletedEvent(EssenceEvent):
-    """Convenience class for an XML Object Delete Event"""
+    """Convenience class for an XML Object Deleted Event"""
     root_tag = "objectDeletedEvent"
