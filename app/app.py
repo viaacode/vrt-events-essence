@@ -159,6 +159,7 @@ class EssenceLinkedHandler(BaseHandler):
             raise NackException(
                 f"Unable to retrieve MediaHaven object for s3_object_key: {filename}",
                 error=error,
+                error_response=error.response.text,
                 s3_object_key=filename,
             )
         return fragment
@@ -182,6 +183,7 @@ class EssenceLinkedHandler(BaseHandler):
             raise NackException(
                 f"Unable to create a fragment for umid: {umid}",
                 error=error,
+                error_response=error.response.text,
                 umid=umid,
             )
         except RequestException as error:
@@ -248,11 +250,12 @@ class EssenceLinkedHandler(BaseHandler):
             result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id, pid)
         except HTTPError as error:
             raise NackException(
-                        f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
-                        error=error,
-                        fragment_id=fragment_id,
-                        media_id=media_id,
-                    )
+                f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
+                error=error,
+                error_response=error.response.text,
+                fragment_id=fragment_id,
+                media_id=media_id,
+            )
         if not result:
             raise NackException(
                 f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
@@ -318,6 +321,7 @@ class DeleteFragmentHandler(BaseHandler):
             raise NackException(
                 f"Unable to retrieve fragment for dc_identifier_localid: {media_id}",
                 error=error,
+                error_response=error.response.text,
                 dc_identifier_localid=media_id,
             )
         return fragment
@@ -341,6 +345,7 @@ class DeleteFragmentHandler(BaseHandler):
             raise NackException(
                 f"Unable to delete a fragment for fragment_id: {fragment_id}",
                 error=error,
+                error_response=error.response.text,
                 fragment_id=fragment_id,
             )
         except RequestException as error:

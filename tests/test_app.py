@@ -21,6 +21,14 @@ from app.app import (
 from tests.resources.resources import load_xml_resource, construct_filename
 
 
+@pytest.fixture
+def http_error():
+    response = MagicMock()
+    response.status_code = 400
+    response.text = "error"
+    return HTTPError(response=response)
+
+
 class TestEventListener:
     @pytest.fixture
     @patch('app.app.PIDService')
@@ -247,13 +255,18 @@ class TestEventLinkedHandler:
         assert mh_client_mock.get_fragment.call_args[0][0] == "s3_object_key"
         assert mh_client_mock.get_fragment.call_args[0][1] == "file"
 
-    def test_get_fragment_http_error(self, handler):
+    def test_get_fragment_http_error(self, http_error, handler):
         mh_client_mock = handler.mh_client
         # Raise a HTTP Error when calling method
-        handler.mh_client.get_fragment.side_effect = HTTPError
+        handler.mh_client.get_fragment.side_effect = http_error
 
-        with pytest.raises(NackException):
+        with pytest.raises(NackException) as error:
             handler._get_fragment("file")
+
+        assert error.value.kwargs["error"] == http_error
+        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["s3_object_key"] == "file"
+
         assert mh_client_mock.get_fragment.call_count == 1
         assert mh_client_mock.get_fragment.call_args[0][0] == "s3_object_key"
         assert mh_client_mock.get_fragment.call_args[0][1] == "file"
@@ -295,16 +308,20 @@ class TestEventLinkedHandler:
         assert mh_client_mock.create_fragment.call_count == 1
         assert mh_client_mock.create_fragment.call_args[0][0] == umid
 
-    def test_create_fragment_http_error(self, handler):
+    def test_create_fragment_http_error(self, http_error, handler):
         mh_client_mock = handler.mh_client
         umid = "umid"
 
         # Raise a HTTP Error when calling method
-        mh_client_mock.create_fragment.side_effect = HTTPError
+        mh_client_mock.create_fragment.side_effect = http_error
 
         with pytest.raises(NackException) as error:
             handler._create_fragment(umid)
         assert not error.value.requeue
+        assert error.value.kwargs["error"] == http_error
+        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["umid"] == umid
+
         assert mh_client_mock.create_fragment.call_count == 1
         assert mh_client_mock.create_fragment.call_args[0][0] == umid
 
@@ -348,20 +365,24 @@ class TestEventLinkedHandler:
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
 
-    def test_add_metadata_http_error(self, handler):
+    def test_add_metadata_http_error(self, http_error, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
         pid = "pid"
 
         # Raise a HTTP Error when calling method
-        response = MagicMock()
-        response.status_code = 400
-        mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError(response=response)
+        http_error.status_code = 400
+        mh_client_mock.add_metadata_to_fragment.side_effect = http_error
 
         with pytest.raises(NackException) as error:
             handler._add_metadata(fragment_id, media_id, pid)
         assert not error.value.requeue
+        assert error.value.kwargs["error"] == http_error
+        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["fragment_id"] == fragment_id
+        assert error.value.kwargs["media_id"] == media_id
+
         assert mh_client_mock.add_metadata_to_fragment.call_count == 1
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
@@ -398,14 +419,18 @@ class AbstractTestDeleteFragmentHandler(ABC):
         assert mh_client_mock.get_fragment.call_args[0][0] == "dc_identifier_localid"
         assert mh_client_mock.get_fragment.call_args[0][1] == "media_id"
 
-    def test_get_fragment_http_error(self, handler):
+    def test_get_fragment_http_error(self, http_error, handler):
         mh_client_mock = handler.mh_client
         # Raise a HTTP Error when calling method
-        handler.mh_client.get_fragment.side_effect = HTTPError
+        handler.mh_client.get_fragment.side_effect = http_error
 
         with pytest.raises(NackException) as error:
             handler._get_fragment("media_id")
         assert not error.value.requeue
+        assert error.value.kwargs["error"] == http_error
+        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["dc_identifier_localid"] == "media_id"
+
         assert mh_client_mock.get_fragment.call_count == 1
         assert mh_client_mock.get_fragment.call_args[0][0] == "dc_identifier_localid"
         assert mh_client_mock.get_fragment.call_args[0][1] == "media_id"
@@ -433,16 +458,20 @@ class AbstractTestDeleteFragmentHandler(ABC):
         assert mh_client_mock.delete_fragment.call_count == 1
         assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
 
-    def test_delete_fragment_http_error(self, handler):
+    def test_delete_fragment_http_error(self, http_error, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
 
         # Raise a HTTP Error when calling method
-        mh_client_mock.delete_fragment.side_effect = HTTPError
+        mh_client_mock.delete_fragment.side_effect = http_error
 
         with pytest.raises(NackException) as error:
             handler._delete_fragment(fragment_id)
         assert not error.value.requeue
+        assert error.value.kwargs["error"] == http_error
+        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["fragment_id"] == fragment_id
+
         assert mh_client_mock.delete_fragment.call_count == 1
         assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
 
