@@ -73,146 +73,97 @@ class TestEventListener:
         assert record.message == error_message
         assert record.error_id == error_id
 
-    @patch.object(EssenceLinkedHandler, "handle_event")
-    def test_handle_message_essence_linked(self, mock_handle_event, event_listener):
-        """ Tests if an essence linked event gets interpreted as such """
+    def test_calculate_handler_essence_linked(self, event_listener):
         routing_key = "essence_linked_routing_key"
         event_listener.essence_linked_rk = routing_key
 
-        mock_channel = MagicMock()
-        mock_method = MagicMock()
-        mock_method.delivery_tag = 1
-        mock_method.routing_key = routing_key
-        essence_linked_event = load_xml_resource("essenceLinkedEvent.xml")
+        handler = event_listener._calculate_handler(routing_key)
+        assert type(handler) == EssenceLinkedHandler
+        assert handler.mh_client == event_listener.mh_client
+        assert handler.rabbit_client == event_listener.rabbit_client
+        assert handler.routing_key == event_listener.get_metadata_rk
 
-        event_listener.handle_message(mock_channel, mock_method, None, essence_linked_event)
-
-        assert mock_handle_event.call_count == 1
-        assert mock_handle_event.call_args[0][0] == essence_linked_event
-
-        assert mock_channel.basic_ack.call_count == 1
-        assert mock_channel.basic_ack.call_args[1]["delivery_tag"] == 1
-
-    @patch.object(EssenceLinkedHandler, 'handle_event', side_effect=NackException("error"))
-    @patch.object(EventListener, '_handle_nack_exception', autospec=True)
-    def test_handle_message_essence_linked_nack(self, mock_nack, mock_handle_event, event_listener):
-        """ When a nack exception occurs when handling a essence linked event
-        it should handle the exception accordingly
-        """
-        routing_key = "essence_linked_routing_key"
-        event_listener.essence_linked_rk = routing_key
-
-        mock_channel = MagicMock()
-        mock_method = MagicMock()
-        mock_method.delivery_tag = 1
-        mock_method.routing_key = routing_key
-        essence_linked_event = load_xml_resource("essenceLinkedEvent.xml")
-
-        event_listener.handle_message(mock_channel, mock_method, None, essence_linked_event)
-
-        assert mock_nack.call_count == 1
-        assert mock_nack.call_args[0][1].message == "error"
-        assert mock_nack.call_args[0][2] == mock_channel
-        assert mock_nack.call_args[0][3] == 1
-
-    @patch.object(EssenceUnlinkedHandler, "handle_event")
-    def test_handle_message_essence_unlinked(self, mock_handle_event, event_listener):
-        """ Tests if an essence unlinked event gets interpreted as such """
+    def test_calculate_handler_essence_unlinked(self, event_listener):
         routing_key = "essence_unlinked_routing_key"
         event_listener.essence_unlinked_rk = routing_key
 
+        handler = event_listener._calculate_handler(routing_key)
+        assert type(handler) == EssenceUnlinkedHandler
+        assert handler.mh_client == event_listener.mh_client
+
+    def test_calculate_handler_object_deleted(self, event_listener):
+
+        routing_key = "object_deleted_routing_key"
+        event_listener.object_deleted_rk = routing_key
+
+        handler = event_listener._calculate_handler(routing_key)
+        assert type(handler) == ObjectDeletedHandler
+        assert handler.mh_client == event_listener.mh_client
+
+    def test_calculate_handler_unknown_routing_key(self, event_listener):
+        routing_key = "unknown_routing_key"
+
+        handler = event_listener._calculate_handler(routing_key)
+        assert type(handler) == UnknownRoutingKeyHandler
+        assert handler.routing_key == routing_key
+
+    @patch.object(EventListener, "_calculate_handler")
+    def test_handle_message(self, mock_calculate_handler, event_listener):
+        routing_key = "routing_key"
+
         mock_channel = MagicMock()
         mock_method = MagicMock()
         mock_method.delivery_tag = 1
         mock_method.routing_key = routing_key
-        essence_unlinked_event = load_xml_resource("essenceUnlinkedEvent.xml")
+        event = b'event'
 
-        event_listener.handle_message(mock_channel, mock_method, None, essence_unlinked_event)
+        event_listener.handle_message(mock_channel, mock_method, None, event)
 
-        assert mock_handle_event.call_count == 1
-        assert mock_handle_event.call_args[0][0] == essence_unlinked_event
+        # Check if calculate handler method has been called
+        assert mock_calculate_handler.call_count == 1
+        assert mock_calculate_handler.call_args[0][0] == routing_key
 
+        # Check if handle event of handler has been called
+        handler_mock = mock_calculate_handler()
+        assert handler_mock.handle_event.call_count == 1
+        assert handler_mock.handle_event.call_args[0][0] == event
+
+        # Check if message has been sent to queue
         assert mock_channel.basic_ack.call_count == 1
         assert mock_channel.basic_ack.call_args[1]["delivery_tag"] == 1
+        assert mock_channel.basic_nack.call_count == 0
 
-    @patch.object(EssenceUnlinkedHandler, 'handle_event', side_effect=NackException("error"))
+    @patch.object(EventListener, "_calculate_handler")
     @patch.object(EventListener, '_handle_nack_exception', autospec=True)
-    def test_handle_message_essence_unlinked_nack(self, mock_nack, mock_handle_event, event_listener):
-        """ When a nack exception occurs when handling a essence unlinked event
-        it should handle the exception accordingly.
-        """
-        routing_key = "essence_unlinked_routing_key"
-        event_listener.essence_unlinked_rk = routing_key
+    def test_handle_message_nack(self, mock_nack, mock_calculate_handler, event_listener):
+        routing_key = "routing_key"
 
         mock_channel = MagicMock()
         mock_method = MagicMock()
         mock_method.delivery_tag = 1
         mock_method.routing_key = routing_key
-        essence_unlinked_event = load_xml_resource("essenceUnlinkedEvent.xml")
+        event = b'event'
 
-        event_listener.handle_message(mock_channel, mock_method, None, essence_unlinked_event)
+        # Let the handler return a nack exception when handling the event
+        handler_mock = mock_calculate_handler.return_value
+        handler_mock.handle_event.side_effect = NackException('')
+        event_listener.handle_message(mock_channel, mock_method, None, event)
 
+        # Check if calculate handler method has been called
+        assert mock_calculate_handler.call_count == 1
+        assert mock_calculate_handler.call_args[0][0] == routing_key
+
+        # Check if handle event of handler has been called
+        handler_mock = mock_calculate_handler()
+        assert handler_mock.handle_event.call_count == 1
+        assert handler_mock.handle_event.call_args[0][0] == event
+
+        # Check if message has been sent to queue
+        assert mock_channel.basic_ack.call_count == 0
         assert mock_nack.call_count == 1
         assert mock_nack.call_args[0][1].message == "error"
         assert mock_nack.call_args[0][2] == mock_channel
         assert mock_nack.call_args[0][3] == 1
-
-    @patch.object(ObjectDeletedHandler, "handle_event")
-    def test_handle_message_object_deleted(self, mock_handle_event, event_listener):
-        """ Tests if an object deleted event gets interpreted as such """
-        routing_key = "object_deleted_routing_key"
-        event_listener.object_deleted_rk = routing_key
-
-        mock_channel = MagicMock()
-        mock_method = MagicMock()
-        mock_method.delivery_tag = 1
-        mock_method.routing_key = routing_key
-        object_deleted_event = load_xml_resource("objectDeletedEvent.xml")
-
-        event_listener.handle_message(mock_channel, mock_method, None, object_deleted_event)
-
-        assert mock_handle_event.call_count == 1
-        assert mock_handle_event.call_args[0][0] == object_deleted_event
-
-        assert mock_channel.basic_ack.call_count == 1
-        assert mock_channel.basic_ack.call_args[1]["delivery_tag"] == 1
-
-    @patch.object(ObjectDeletedHandler, 'handle_event', side_effect=NackException("error"))
-    @patch.object(EventListener, '_handle_nack_exception', autospec=True)
-    def test_handle_message_object_deleted_nack(self, mock_nack, mock_handle_event, event_listener):
-        """ When a nack exception occurs when handling a object deleted event
-        it should handle the exception accordingly.
-        """
-        routing_key = "object_deleted_routing_key"
-        event_listener.object_deleted_rk = routing_key
-
-        mock_channel = MagicMock()
-        mock_method = MagicMock()
-        mock_method.delivery_tag = 1
-        mock_method.routing_key = routing_key
-        object_deleted_event = load_xml_resource("objectDeletedEvent.xml")
-
-        event_listener.handle_message(mock_channel, mock_method, None, object_deleted_event)
-
-        assert mock_nack.call_count == 1
-        assert mock_nack.call_args[0][1].message == "error"
-        assert mock_nack.call_args[0][2] == mock_channel
-        assert mock_nack.call_args[0][3] == 1
-
-    def test_handle_message_unknown_routing_key(self, event_listener, caplog):
-        mock_channel = MagicMock()
-        mock_method = MagicMock()
-        mock_method.delivery_tag = 1
-        mock_method.routing_key = "unknown"
-        message = "irrelevant"
-
-        event_listener.handle_message(mock_channel, mock_method, None, message)
-
-        captured = caplog.text
-        assert "Unknown routing key: unknown" in captured
-        assert mock_channel.basic_nack.call_count == 1
-        assert mock_channel.basic_nack.call_args[1]["delivery_tag"] == 1
-        assert not mock_channel.basic_nack.call_args[1]["requeue"]
 
 
 class TestEventLinkedHandler:
