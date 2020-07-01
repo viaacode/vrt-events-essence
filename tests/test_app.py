@@ -146,7 +146,7 @@ class TestEventListener:
 
         # Let the handler return a nack exception when handling the event
         handler_mock = mock_calculate_handler.return_value
-        handler_mock.handle_event.side_effect = NackException('')
+        handler_mock.handle_event.side_effect = NackException("error")
         event_listener.handle_message(mock_channel, mock_method, None, event)
 
         # Check if calculate handler method has been called
