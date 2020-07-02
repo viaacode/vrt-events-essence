@@ -15,12 +15,13 @@ class TestMediahaven:
         cfg = {"mediahaven": {"host": "host"}}
         client = MediahavenClient(cfg)
         media_id = "media id"
+        pid = "pid"
 
         # Load in XML schema
         schema = etree.XMLSchema(file=construct_filename("mhs.xsd"))
 
         # Parse essence event linked as tree
-        xml = client._construct_metadata(media_id)
+        xml = client._construct_metadata(media_id, pid)
         tree = etree.parse(BytesIO(xml.encode("utf-8")))
 
         # Assert validness according to schema
@@ -34,3 +35,4 @@ class TestMediahaven:
             "mhs:Dynamic/dc_identifier_localids/MEDIA_ID", namespaces=NSMAP
         )
         assert m_id_element[0].text == media_id
+        assert tree.xpath("mhs:Dynamic/PID", namespaces=NSMAP)[0].text == pid

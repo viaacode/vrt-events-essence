@@ -21,6 +21,7 @@ from app.helpers.events_parser import (
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from app.services.mediahaven import MediahavenClient
+from app.services.pid import PIDService
 
 
 class RetryException(Exception):
@@ -51,11 +52,12 @@ class BaseHandler(ABC):
 
 class EssenceLinkedHandler(BaseHandler):
     """ Class that will handle an incoming essence linked event """
-    def __init__(self, logger, mh_client, rabbit_client, routing_key):
+    def __init__(self, logger, mh_client, rabbit_client, routing_key, pid_service):
         self.log = logger
         self.mh_client = mh_client
         self.rabbit_client = rabbit_client
         self.routing_key = routing_key
+        self.pid_service = pid_service
 
     def _generate_get_metadata_request_xml(self, timestamp: datetime, correlation_id: str, media_id: str) -> str:
         """ Generates an xml for the getMetaDataRequest event.
@@ -99,7 +101,7 @@ class EssenceLinkedHandler(BaseHandler):
             message {str} -- Essence linked event XML message.
 
         Raises:
-            NackException -- When something happens that stops the handling.
+            NackError -- When something went wrong
         """
         self.log.info(
             'Start handling essence linked event',
@@ -118,6 +120,9 @@ class EssenceLinkedHandler(BaseHandler):
         # Parse the umid from the MediaHaven object
         umid = self._parse_umid(fragment)
 
+        # Get a pid to use for the new fragment
+        pid = self._get_pid()
+
         # Create fragment for main fragment
         create_fragment_response = self._create_fragment(umid)
 
@@ -125,13 +130,7 @@ class EssenceLinkedHandler(BaseHandler):
         fragment_id = self._parse_fragment_id(create_fragment_response)
 
         # Add Media_id to the newly created fragment
-        result = self._add_metadata(fragment_id, media_id)
-        if not result:
-            raise NackException(
-                f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
-                fragment_id=fragment_id,
-                media_id=media_id
-            )
+        self._add_metadata(fragment_id, media_id, pid)
 
         # Build metadata request XML
         xml = self._generate_get_metadata_request_xml(
@@ -213,7 +212,7 @@ class EssenceLinkedHandler(BaseHandler):
             )
         return fragment_id
 
-    def _retry(func):
+    def _retry(self, func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             delay = 1
@@ -234,21 +233,81 @@ class EssenceLinkedHandler(BaseHandler):
             return False
         return wrapper
 
-    @_retry
-    def _add_metadata(self, fragment_id: str, media_id: str) -> bool:
-        try:
-            result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id)
-        except HTTPError as error:
-            if error.response.status_code == 404:
-                raise RetryException(f"Unable to update metadata for fragment_id: {fragment_id}")
-            else:
-                raise NackException(
-                    f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
-                    error=error,
-                    fragment_id=fragment_id,
-                    media_id=media_id,
-                )
-        return result
+    def _get_pid(self) -> str:
+        """ Fetches a PID from the PID service.
+        
+        Raises:
+            NackException -- If unable to get a PID after X tries
+
+        Returns:
+            str -- The generated PID
+        """
+        @self._retry
+        def _internal_get_pid(self) -> str:
+            """ Actual method that will fetch a PID.
+
+            Raises:
+                RetryException -- If no valid PID is returned and we need to retry.
+            """
+            pid = self.pid_service.get_pid()
+            if not pid:
+                raise RetryException("Unable to get a pid")
+            return pid
+
+        pid = _internal_get_pid(self)
+        if not pid:
+            raise NackException("Unable to get a pid", requeue=True)
+        return pid
+
+    def _add_metadata(self, fragment_id: str, media_id: str, pid: str):
+        """ Adds the media ID and PID as metadata to the fragment.
+
+        This method is called after getting a success back from MH when sending out
+        a request creating the fragment. However with how MH works, it is possible
+        that the fragment has not yet been created. This result in a 404 response. We
+        will retry X times with an exponential back-off in that. If unsuccessful after
+        those X time we'll send a NackException.
+
+        Another type of HTTP error will result in a NackException.
+
+        As we actually only expect a 204 back from MH, another status code
+        in the success range (e.g. 200) will be seen as unsuccessful. This
+        also result in a NackException.
+
+        Arguments:
+            fragment_id -- ID of fragment to add the metadata to.
+            media_id -- Media ID to add as metadata.
+            pid -- PID to add as metadata.
+
+        Raises:
+            NackException -- When we were unable to add the metadata (see above).
+        """
+        @self._retry
+        def _internal_add_metadata(self) -> bool:
+            """ Actual method that will add the metadata
+
+            Raises:
+                RetryException -- When we get a 404 back from MH and need to retry.
+                NackException -- When we get a HTTP error back from MH that is not a 404.
+            """
+            try:
+                return self.mh_client.add_metadata_to_fragment(fragment_id, media_id, pid)
+            except HTTPError as error:
+                if error.response.status_code == 404:
+                    raise RetryException(f"Unable to update metadata for fragment_id: {fragment_id}")
+                else:
+                    raise NackException(
+                        f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
+                        error=error,
+                        fragment_id=fragment_id,
+                        media_id=media_id,
+                    )
+        if not _internal_add_metadata(self):
+            raise NackException(
+                f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
+                fragment_id=fragment_id,
+                media_id=media_id
+            )
 
 
 class DeleteFragmentHandler(BaseHandler):
@@ -402,6 +461,7 @@ class EventListener:
         except AMQPConnectionError as error:
             self.log.error("Connection to RabbitMQ failed.")
             raise error
+        self.pid_service = PIDService(self.config["pid-service"]["URL"])
         self.essence_linked_rk = self.config["rabbitmq"]["essence_linked_routing_key"]
         self.essence_unlinked_rk = self.config["rabbitmq"]["essence_unlinked_routing_key"]
         self.object_deleted_rk = self.config["rabbitmq"]["object_deleted_routing_key"]
@@ -421,7 +481,8 @@ class EventListener:
                 self.log,
                 self.mh_client,
                 self.rabbit_client,
-                self.get_metadata_rk
+                self.get_metadata_rk,
+                self.pid_service
             )
         if routing_key == self.essence_unlinked_rk:
             return EssenceUnlinkedHandler(self.log, self.mh_client)

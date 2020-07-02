@@ -23,10 +23,13 @@ from tests.resources.resources import load_xml_resource, construct_filename
 
 class TestEventListener:
     @pytest.fixture
+    @patch('app.app.PIDService')
     @patch('app.app.MediahavenClient')
     @patch('app.app.RabbitClient')
-    def event_listener(self, rabbit_client, mh_client):
-        """ Creates an event listener with mocked rabbit client and MH client"""
+    def event_listener(self, rabbit_client, mh_client, pid_service):
+        """ Creates an event listener with mocked rabbit client, MH client and
+        PID Service
+        """
         return EventListener()
 
     def test_handle_nack_exception(self, event_listener, caplog):
@@ -167,12 +170,37 @@ class TestEventListener:
 
 
 class TestEventLinkedHandler:
+    def _assert_retry(self, log_mock, function_mock, time_sleep_mock):
+        """ Assert a function went through the _retry decorator
+
+        Arguments:
+            log_mock -- The mocked logger
+            function_mock -- The mocked function which should have been retried
+            time_sleep_mock -- The time.sleep mock
+        """
+        tries = 5
+        back_off = 2
+        delay = 1
+
+        assert function_mock.call_count == tries
+        assert time_sleep_mock.call_count == tries
+        # Test exponential backoff
+        assert time_sleep_mock.call_args_list[0][0][0] == delay
+        for i in range(1, tries):
+            prev_val = time_sleep_mock.call_args_list[i-1][0][0]
+            assert time_sleep_mock.call_args_list[i][0][0] == prev_val*back_off
+
+        # Test if it wrote a DEBUG log entry for every try
+        assert log_mock.debug.call_count == tries
+        for i in range(0, tries):
+            assert log_mock.debug.call_args_list[i][1]["try_count"] == i+1
+
     @pytest.fixture
     def handler(self):
-        """ Creates an essence linked handler with a mocked logger, rabbit client
-        and MH client.
+        """ Creates an essence linked handler with a mocked logger, rabbit client,
+        MH client and PID Service.
         """
-        return EssenceLinkedHandler(MagicMock(), MagicMock(), MagicMock(), "routing_key")
+        return EssenceLinkedHandler(MagicMock(), MagicMock(), MagicMock(), "routing_key", MagicMock())
 
     def test_generate_get_metadata_request_xml(self, handler):
         # Create getMetadataRequest XML
@@ -205,6 +233,7 @@ class TestEventLinkedHandler:
     @patch.object(EssenceLinkedHandler, "_parse_event")
     @patch.object(EssenceLinkedHandler, "_get_fragment")
     @patch.object(EssenceLinkedHandler, "_parse_umid")
+    @patch.object(EssenceLinkedHandler, "_get_pid")
     @patch.object(EssenceLinkedHandler, "_create_fragment")
     @patch.object(EssenceLinkedHandler, "_parse_fragment_id")
     @patch.object(EssenceLinkedHandler, "_add_metadata", return_value=True)
@@ -215,6 +244,7 @@ class TestEventLinkedHandler:
         mock_add_metadata,
         mock_parse_fragment_id,
         mock_create_fragment,
+        mock_get_pid,
         mock_parse_umid,
         mock_get_fragment,
         mock_parse_event,
@@ -226,44 +256,12 @@ class TestEventLinkedHandler:
         assert mock_parse_umid.call_count == 1
         assert mock_create_fragment.call_count == 1
         assert mock_parse_fragment_id.call_count == 1
+        assert mock_get_pid.call_count == 1
         assert mock_add_metadata.call_count == 1
         assert mock_generate_get_metadata_request_xml.call_count == 1
         assert handler.rabbit_client.send_message.call_count == 1
         assert handler.rabbit_client.send_message.call_args[0][0] == "xml"
         assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
-
-    @patch.object(EssenceLinkedHandler, "_parse_event")
-    @patch.object(EssenceLinkedHandler, "_get_fragment")
-    @patch.object(EssenceLinkedHandler, "_parse_umid")
-    @patch.object(EssenceLinkedHandler, "_create_fragment")
-    @patch.object(EssenceLinkedHandler, "_parse_fragment_id")
-    @patch.object(EssenceLinkedHandler, "_add_metadata", return_value=False)
-    @patch.object(EssenceLinkedHandler, "_generate_get_metadata_request_xml")
-    def test_handle_event_update_false(
-        self,
-        mock_generate_get_metadata_request_xml,
-        mock_add_metadata,
-        mock_parse_fragment_id,
-        mock_create_fragment,
-        mock_parse_umid,
-        mock_get_fragment,
-        mock_parse_event,
-        handler
-    ):
-        """ If the metadata update call to MH return a status code in the 200 range
-        but not a 204, it will be seen as unsuccessful. In this case it should
-        stop the handling flow and send a nack to rabbit
-        """
-        with pytest.raises(NackException) as error:
-            handler.handle_event("irrelevant")
-        assert not error.value.requeue
-        assert mock_parse_event.call_count == 1
-        assert mock_get_fragment.call_count == 1
-        assert mock_parse_umid.call_count == 1
-        assert mock_create_fragment.call_count == 1
-        assert mock_parse_fragment_id.call_count == 1
-        assert mock_add_metadata.call_count == 1
-        assert mock_generate_get_metadata_request_xml.call_count == 0
 
     def test_get_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -296,6 +294,22 @@ class TestEventLinkedHandler:
         with pytest.raises(NackException) as error:
             handler._parse_umid(fragment)
         assert not error.value.requeue
+
+    def test_get_pid(self, handler):
+        pid_service_mock = handler.pid_service
+        pid_service_mock.get_pid.return_value = "pid"
+
+        assert handler._get_pid() == "pid"
+
+    @patch('time.sleep')
+    def test_get_pid_retry(self, time_sleep_mock, handler):
+        pid_service_mock = handler.pid_service
+        pid_service_mock.get_pid.return_value = None
+
+        with pytest.raises(NackException) as error:
+            handler._get_pid()
+        assert error.value.requeue
+        self._assert_retry(handler.log, pid_service_mock.get_pid, time_sleep_mock)
 
     def test_create_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -350,19 +364,22 @@ class TestEventLinkedHandler:
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
+        pid = "pid"
 
         # Return True, which means the action was successful
         mh_client_mock.add_metadata_to_fragment.return_value = True
 
-        assert handler._add_metadata(fragment_id, media_id)
+        assert handler._add_metadata(fragment_id, media_id, pid) is None
         assert mh_client_mock.add_metadata_to_fragment.call_count == 1
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
+        assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
 
     def test_add_metadata_http_error(self, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
+        pid = "pid"
 
         # Raise a HTTP Error when calling method
         response = MagicMock()
@@ -370,40 +387,42 @@ class TestEventLinkedHandler:
         mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError(response=response)
 
         with pytest.raises(NackException) as error:
-            handler._add_metadata(fragment_id, media_id)
+            handler._add_metadata(fragment_id, media_id, pid)
         assert not error.value.requeue
         assert mh_client_mock.add_metadata_to_fragment.call_count == 1
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
+        assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
 
     @patch('time.sleep')
     def test_add_metadata_http_error_retry(self, time_sleep_mock, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
+        pid = "pid"
 
         # Raise a HTTP Error when calling method
         response = MagicMock()
         response.status_code = 404
         mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError(response=response)
 
-        assert not handler._add_metadata(fragment_id, media_id)
-        assert mh_client_mock.add_metadata_to_fragment.call_count == 5
-        assert time_sleep_mock.call_count == 5
-        # Test exponential backoff
-        assert time_sleep_mock.call_args_list[0][0][0] == 1
-        assert time_sleep_mock.call_args_list[1][0][0] == 2
-        assert time_sleep_mock.call_args_list[2][0][0] == 4
-        assert time_sleep_mock.call_args_list[3][0][0] == 8
-        assert time_sleep_mock.call_args_list[4][0][0] == 16
+        with pytest.raises(NackException) as error:
+            handler._add_metadata(fragment_id, media_id, pid)
+        assert not error.value.requeue
+        self._assert_retry(handler.log, mh_client_mock.add_metadata_to_fragment, time_sleep_mock)
 
-        # Test if wrote a DEBUG log entry for every try
-        assert handler.log.debug.call_count == 5
-        assert handler.log.debug.call_args_list[0][1]["try_count"] == 1
-        assert handler.log.debug.call_args_list[1][1]["try_count"] == 2
-        assert handler.log.debug.call_args_list[2][1]["try_count"] == 3
-        assert handler.log.debug.call_args_list[3][1]["try_count"] == 4
-        assert handler.log.debug.call_args_list[4][1]["try_count"] == 5
+    def test_add_metadata_false(self, handler):
+        mh_client_mock = handler.mh_client
+        fragment_id = "fragment id"
+        media_id = "media id"
+        pid = "pid"
+
+        mh_client_mock.add_metadata_to_fragment.return_value = False
+
+        with pytest.raises(NackException) as error:
+            handler._add_metadata(fragment_id, media_id, pid)
+        assert not error.value.requeue
+        assert error.value.kwargs.get("error") is None
 
 
 class AbstractTestDeleteFragmentHandler(ABC):
