@@ -5,11 +5,6 @@ import requests
 from requests.exceptions import RequestException
 
 from app.helpers.retry import retry
-from viaa.configuration import ConfigParser
-from viaa.observability import logging
-
-configParser = ConfigParser()
-log = logging.get_logger(__name__, config=configParser)
 
 
 class PIDService():
@@ -33,7 +28,8 @@ class PIDService():
     def get_pid(self) -> str:
         """ Fetches a PID via a GET call to the PID Service endpoint """
         resp = requests.get(self.url)
-        log.debug(f"Response is: {resp.raw}")
+        # TODO -- Log a proper result
+        # log.debug(f"Response is: {resp.raw}")
         pid = resp.json()[0]["id"]
 
         return pid

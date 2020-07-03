@@ -4,8 +4,8 @@ import time
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
-configParser = ConfigParser()
-log = logging.get_logger(__name__, config=configParser)
+log = logging.get_logger(__name__)
+log.setLevel("DEBUG")
 
 
 class RetryException(Exception):
