@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import functools
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -22,12 +21,6 @@ from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from app.services.mediahaven import MediahavenClient
 from app.services.pid import PIDService
-
-
-class RetryException(Exception):
-    """ Exception raised when an action needs to be retried
-    in combination with _retry decorator"""
-    pass
 
 
 class NackException(Exception):
@@ -212,49 +205,17 @@ class EssenceLinkedHandler(BaseHandler):
             )
         return fragment_id
 
-    def _retry(self, func):
-        @functools.wraps(func)
-        def wrapper(self, *args, **kwargs):
-            delay = 1
-            backoff = 2
-            number_of_tries = 5
-            tries = 5
-            while tries:
-                tries -= 1
-                try:
-                    return func(self, *args, **kwargs)
-                except RetryException as error:
-                    self.log.debug(
-                        f"{error}. Retrying in {delay} seconds.",
-                        try_count=number_of_tries - tries
-                    )
-                    time.sleep(delay)
-                    delay *= backoff
-            return False
-        return wrapper
-
     def _get_pid(self) -> str:
         """ Fetches a PID from the PID service.
-        
+
         Raises:
-            NackException -- If unable to get a PID after X tries
+            NackException -- If unable to get a PID
 
         Returns:
             str -- The generated PID
         """
-        @self._retry
-        def _internal_get_pid(self) -> str:
-            """ Actual method that will fetch a PID.
 
-            Raises:
-                RetryException -- If no valid PID is returned and we need to retry.
-            """
-            pid = self.pid_service.get_pid()
-            if not pid:
-                raise RetryException("Unable to get a pid")
-            return pid
-
-        pid = _internal_get_pid(self)
+        pid = self.pid_service.get_pid()
         if not pid:
             raise NackException("Unable to get a pid", requeue=True)
         return pid
@@ -282,27 +243,17 @@ class EssenceLinkedHandler(BaseHandler):
         Raises:
             NackException -- When we were unable to add the metadata (see above).
         """
-        @self._retry
-        def _internal_add_metadata(self) -> bool:
-            """ Actual method that will add the metadata
 
-            Raises:
-                RetryException -- When we get a 404 back from MH and need to retry.
-                NackException -- When we get a HTTP error back from MH that is not a 404.
-            """
-            try:
-                return self.mh_client.add_metadata_to_fragment(fragment_id, media_id, pid)
-            except HTTPError as error:
-                if error.response.status_code == 404:
-                    raise RetryException(f"Unable to update metadata for fragment_id: {fragment_id}")
-                else:
-                    raise NackException(
+        try:
+            result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id, pid)
+        except HTTPError as error:
+            raise NackException(
                         f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
                         error=error,
                         fragment_id=fragment_id,
                         media_id=media_id,
                     )
-        if not _internal_add_metadata(self):
+        if not result:
             raise NackException(
                 f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
                 fragment_id=fragment_id,

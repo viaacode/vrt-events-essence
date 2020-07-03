@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from lxml import etree
-
 import functools
 
 import requests
+from lxml import etree
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import RequestException
 
+from app.helpers.retry import retry, RetryException
 
 NAMESPACE_MHS = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
 NSMAP = {"mhs": NAMESPACE_MHS}
@@ -130,6 +130,7 @@ class MediahavenClient:
 
         return response.status_code == 204
 
+    @retry(RetryException)
     @__authenticate
     def add_metadata_to_fragment(self, fragment_id: str, media_id: str, pid: str) -> bool:
         headers = self._construct_headers()
@@ -148,6 +149,9 @@ class MediahavenClient:
             # AuthenticationException triggers a retry with a new token
             raise AuthenticationException(response.text)
 
+        if response.status_code == 404:
+            raise RetryException(f"Unable to update metadata for fragment_id: {fragment_id}")
+
         # If there is an HTTP error, raise it
         response.raise_for_status()
 
@@ -155,7 +159,7 @@ class MediahavenClient:
 
     def _construct_metadata(self, media_id: str, pid: str) -> str:
         """Create the sidecar XML to upload the media id metadata.
-W
+
         Returns:
             str -- The metadata sidecar XML.
         """

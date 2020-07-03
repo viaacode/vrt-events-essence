@@ -11,7 +11,7 @@ from tests.resources.resources import load_xml_resource, construct_filename
 
 
 class TestMediahaven:
-    def test_construct_metadata(mock_mediahaven):
+    def test_construct_metadata(self):
         cfg = {"mediahaven": {"host": "host"}}
         client = MediahavenClient(cfg)
         media_id = "media id"

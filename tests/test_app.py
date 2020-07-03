@@ -170,31 +170,6 @@ class TestEventListener:
 
 
 class TestEventLinkedHandler:
-    def _assert_retry(self, log_mock, function_mock, time_sleep_mock):
-        """ Assert a function went through the _retry decorator
-
-        Arguments:
-            log_mock -- The mocked logger
-            function_mock -- The mocked function which should have been retried
-            time_sleep_mock -- The time.sleep mock
-        """
-        tries = 5
-        back_off = 2
-        delay = 1
-
-        assert function_mock.call_count == tries
-        assert time_sleep_mock.call_count == tries
-        # Test exponential backoff
-        assert time_sleep_mock.call_args_list[0][0][0] == delay
-        for i in range(1, tries):
-            prev_val = time_sleep_mock.call_args_list[i-1][0][0]
-            assert time_sleep_mock.call_args_list[i][0][0] == prev_val*back_off
-
-        # Test if it wrote a DEBUG log entry for every try
-        assert log_mock.debug.call_count == tries
-        for i in range(0, tries):
-            assert log_mock.debug.call_args_list[i][1]["try_count"] == i+1
-
     @pytest.fixture
     def handler(self):
         """ Creates an essence linked handler with a mocked logger, rabbit client,
@@ -301,15 +276,13 @@ class TestEventLinkedHandler:
 
         assert handler._get_pid() == "pid"
 
-    @patch('time.sleep')
-    def test_get_pid_retry(self, time_sleep_mock, handler):
+    def test_get_pid_none(self, handler):
         pid_service_mock = handler.pid_service
         pid_service_mock.get_pid.return_value = None
 
         with pytest.raises(NackException) as error:
             handler._get_pid()
         assert error.value.requeue
-        self._assert_retry(handler.log, pid_service_mock.get_pid, time_sleep_mock)
 
     def test_create_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -393,23 +366,6 @@ class TestEventLinkedHandler:
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
-
-    @patch('time.sleep')
-    def test_add_metadata_http_error_retry(self, time_sleep_mock, handler):
-        mh_client_mock = handler.mh_client
-        fragment_id = "fragment id"
-        media_id = "media id"
-        pid = "pid"
-
-        # Raise a HTTP Error when calling method
-        response = MagicMock()
-        response.status_code = 404
-        mh_client_mock.add_metadata_to_fragment.side_effect = HTTPError(response=response)
-
-        with pytest.raises(NackException) as error:
-            handler._add_metadata(fragment_id, media_id, pid)
-        assert not error.value.requeue
-        self._assert_retry(handler.log, mh_client_mock.add_metadata_to_fragment, time_sleep_mock)
 
     def test_add_metadata_false(self, handler):
         mh_client_mock = handler.mh_client
