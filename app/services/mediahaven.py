@@ -149,8 +149,10 @@ class MediahavenClient:
             # AuthenticationException triggers a retry with a new token
             raise AuthenticationException(response.text)
 
-        if response.status_code == 404:
-            raise RetryException(f"Unable to update metadata for fragment_id: {fragment_id}")
+        if response.status_code in (404, 403):
+            raise RetryException(
+                f"Unable to update metadata for fragment_id: {fragment_id} with status code: {response.status_code}",
+            )
 
         # If there is an HTTP error, raise it
         response.raise_for_status()
