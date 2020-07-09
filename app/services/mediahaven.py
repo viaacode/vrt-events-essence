@@ -4,6 +4,7 @@
 import functools
 
 import requests
+import urllib
 from lxml import etree
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import RequestException
@@ -68,14 +69,18 @@ class MediahavenClient:
         }
 
     @__authenticate
-    def get_fragment(self, query_key: str, value: str) -> dict:
+    def get_fragment(self, query_key_values: list) -> dict:
         headers = self._construct_headers()
 
-        # Construct URL query parameters
-        params: dict = {
-            "q": f'+({query_key}:"{value}")',
+        # Construct URL query parameters as "+(k1:v1) +(k2:v2) +(k3:v3) ..."
+        query = " ".join([f'+({":".join(map(str, k_v))})' for k_v in query_key_values])
+
+        params_dict: dict = {
+            "q": query,
             "nrOfResults": 1,
         }
+        # Encode the spaces in the query parameters as %20 and not +
+        params = urllib.parse.urlencode(params_dict, quote_via=urllib.parse.quote)
 
         # Send the GET request
         response = requests.get(self.url, headers=headers, params=params,)

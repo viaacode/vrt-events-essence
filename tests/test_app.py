@@ -188,38 +188,37 @@ class AbstractBaseHandler(ABC):
         mh_client_mock = handler.mh_client
         mh_client_mock.get_fragment.return_value = result_dict
 
-        assert handler._get_fragment("key", "value", expected_amount) == result_dict
+        key_values = [("key", "value")]
+        assert handler._get_fragment(key_values, expected_amount) == result_dict
         assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == "key"
-        assert mh_client_mock.get_fragment.call_args[0][1] == "value"
+        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
 
     def test_get_fragment_nr_of_results_mismatch(self, handler):
         result_dict = {"TotalNrOfResults": 1}
         mh_client_mock = handler.mh_client
         mh_client_mock.get_fragment.return_value = result_dict
 
+        key_values = [("key", "value")]
         with pytest.raises(NackException):
-            handler._get_fragment("key", "value", 2)
+            handler._get_fragment(key_values, 2)
         assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == "key"
-        assert mh_client_mock.get_fragment.call_args[0][1] == "value"
+        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
 
     def test_get_fragment_http_error(self, http_error, handler):
         mh_client_mock = handler.mh_client
         # Raise a HTTP Error when calling method
         handler.mh_client.get_fragment.side_effect = http_error
 
+        key_values = [("key", "value")]
         with pytest.raises(NackException) as error:
-            handler._get_fragment("key", "value")
+            handler._get_fragment(key_values)
         assert not error.value.requeue
         assert error.value.kwargs["error"] == http_error
         assert error.value.kwargs["error_response"] == http_error.response.text
-        assert error.value.kwargs["query_key"] == "key"
-        assert error.value.kwargs["query_value"] == "value"
+        assert error.value.kwargs["query_key_values"] == key_values
 
         assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == "key"
-        assert mh_client_mock.get_fragment.call_args[0][1] == "value"
+        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
 
 
 class TestEventLinkedHandler(AbstractBaseHandler):
@@ -281,10 +280,15 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         handler.handle_event("irrelevant")
         assert mock_parse_event.call_count == 1
         assert mock_get_fragment.call_count == 2
-        assert mock_get_fragment.call_args_list[0][0][0] == "s3_object_key"
-        assert mock_get_fragment.call_args_list[0][0][2] == 1
-        assert mock_get_fragment.call_args_list[1][0][0] == "dc_identifier_localid"
-        assert mock_get_fragment.call_args_list[1][0][2] == 0
+
+        # First call
+        args = ([("s3_object_key", mock_parse_event().file), ("IsFragment", 0)], 1)
+        assert mock_get_fragment.call_args_list[0][0] == args
+
+        # Second call
+        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 0)
+        assert mock_get_fragment.call_args_list[1][0] == args
+
         assert mock_parse_umid.call_count == 1
         assert mock_create_fragment.call_count == 1
         assert mock_parse_fragment_id.call_count == 1
@@ -294,7 +298,6 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert handler.rabbit_client.send_message.call_count == 1
         assert handler.rabbit_client.send_message.call_args[0][0] == "xml"
         assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
-
 
     def test_parse_umid(self, handler):
         object_id = "object id"
@@ -520,8 +523,8 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        assert mock_get_fragment.call_args[0][0] == "dc_identifier_localid"
-        assert mock_get_fragment.call_args[0][2] == 1
+        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 1)
+        assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1
         assert mock_delete_fragment.call_count == 1
@@ -559,8 +562,8 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        assert mock_get_fragment.call_args[0][0] == "dc_identifier_localid"
-        assert mock_get_fragment.call_args[0][2] == 1
+        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 1)
+        assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1
         assert mock_delete_fragment.call_count == 1

@@ -42,15 +42,14 @@ class BaseHandler(ABC):
     def handle_event(self, message: str):
         pass
 
-    def _get_fragment(self, query_key: str, value: str, expected_amount: int = -1) -> dict:
-        """ Gets a fragment based on a query given a key and a value.
+    def _get_fragment(self, query_key_values: str, expected_amount: int = -1) -> dict:
+        """ Gets a fragment based on a query given a list of keys and values.
 
         Also checks if the actual amount of results is what we expect. If the expected
         amount is -1, the check will be skipped.
 
         Arguments:
-            query_key -- The key to query.
-            value -- The value to query.
+            query_key_values -- A list of key-value tuples.
             expected_amount -- Expected amount of results. default: -1 (no check).
         Raises:
             NackException:
@@ -58,22 +57,20 @@ class BaseHandler(ABC):
                 When an HTTPError is returned when querying MH.
         """
         try:
-            self.log.debug(f"Retrieve fragment with {query_key}: {value}")
-            response_dict = self.mh_client.get_fragment(query_key, value)
+            self.log.debug(f"Retrieve fragment with {query_key_values}")
+            response_dict = self.mh_client.get_fragment(query_key_values)
             number_of_results = response_dict["TotalNrOfResults"]
             if expected_amount > -1 and number_of_results != expected_amount:
                 raise NackException(
-                    f"Expected {expected_amount} result(s) with {query_key}:{value}, found {number_of_results} result(s)",
-                    query_key=query_key,
-                    query_value=value
+                    f"Expected {expected_amount} result(s) with {query_key_values}, found {number_of_results} result(s)",
+                    query_key_values=query_key_values,
                 )
         except HTTPError as error:
             raise NackException(
-                f"Unable to retrieve fragment for {query_key}: {value}",
+                f"Unable to retrieve fragment for {query_key_values}",
                 error=error,
                 error_response=error.response.text,
-                query_key=query_key,
-                query_value=value
+                query_key_values=query_key_values
             )
         return response_dict
 
@@ -143,10 +140,10 @@ class EssenceLinkedHandler(BaseHandler):
         media_id = event.media_id
 
         # Get the main fragment
-        fragment = self._get_fragment("s3_object_key", filename, 1)
+        fragment = self._get_fragment([("s3_object_key", filename), ("IsFragment", 0)], 1)
 
         # Check if there are no fragments with the media ID
-        self._get_fragment("dc_identifier_localid", media_id, 0)
+        self._get_fragment([("dc_identifier_localid", media_id)], 0)
 
         # Parse the umid from the MediaHaven object
         umid = self._parse_umid(fragment)
@@ -319,7 +316,7 @@ class DeleteFragmentHandler(BaseHandler):
         media_id = event.media_id
 
         # Get the fragment based on the media_id
-        fragment = self._get_fragment("dc_identifier_localid", media_id, 1)
+        fragment = self._get_fragment([("dc_identifier_localid", media_id)], 1)
 
         # Parse the fragment_id from the MediaHaven object
         fragment_id = self._parse_fragment_id(fragment)
