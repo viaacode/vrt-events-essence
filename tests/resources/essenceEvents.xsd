@@ -3,31 +3,6 @@
            xmlns:tns="http://www.vrt.be/mig/viaa/api"
            xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:ebu="urn:ebu:metadata-schema:ebuCore_2012">
-    <xs:element name="essenceLinkedEvent">
-        <xs:complexType>
-            <xs:sequence>
-                <xs:element name="timestamp" type="xs:dateTime" />
-                <xs:element name="file" type="xs:string" />
-                <xs:element name="mediaId" type="xs:string" />
-            </xs:sequence>
-        </xs:complexType>
-    </xs:element>
-    <xs:element name="objectDeletedEvent">
-        <xs:complexType>
-            <xs:sequence>
-                <xs:element name="timestamp" type="xs:dateTime" />
-                <xs:element name="mediaId" type="xs:string" />
-            </xs:sequence>
-        </xs:complexType>
-    </xs:element>
-    <xs:element name="essenceUnlinkedEvent">
-        <xs:complexType>
-            <xs:sequence>
-                <xs:element name="timestamp" type="xs:dateTime" />
-                <xs:element name="mediaId" type="xs:string" />
-            </xs:sequence>
-        </xs:complexType>
-    </xs:element>
     <xs:element name="getMetadataRequest">
         <xs:complexType>
             <xs:sequence>
