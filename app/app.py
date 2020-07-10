@@ -4,6 +4,7 @@
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import List, Tuple
 
 from lxml.etree import XMLSyntaxError
 from pika.exceptions import AMQPConnectionError
@@ -42,7 +43,7 @@ class BaseHandler(ABC):
     def handle_event(self, message: str):
         pass
 
-    def _get_fragment(self, query_key_values: str, expected_amount: int = -1) -> dict:
+    def _get_fragment(self, query_key_values: List[Tuple[str, object]], expected_amount: int = -1) -> dict:
         """ Gets a fragment based on a query given a list of keys and values.
 
         Also checks if the actual amount of results is what we expect. If the expected

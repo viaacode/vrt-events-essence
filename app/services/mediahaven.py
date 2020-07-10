@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import functools
+from typing import List, Tuple
 
 import requests
 import urllib
@@ -69,7 +70,7 @@ class MediahavenClient:
         }
 
     @__authenticate
-    def get_fragment(self, query_key_values: list) -> dict:
+    def get_fragment(self, query_key_values: List[Tuple[str, object]]) -> dict:
         headers = self._construct_headers()
 
         # Construct URL query parameters as "+(k1:v1) +(k2:v2) +(k3:v3) ..."
