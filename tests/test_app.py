@@ -11,6 +11,7 @@ from lxml import etree
 from requests.exceptions import HTTPError, RequestException
 
 from app.app import (
+    BaseHandler,
     EssenceLinkedHandler,
     EssenceUnlinkedHandler,
     EventListener,
@@ -36,7 +37,7 @@ class TestEventListener:
     @patch('app.app.RabbitClient')
     def event_listener(self, rabbit_client, mh_client, pid_service):
         """ Creates an event listener with mocked rabbit client, MH client and
-        PID Service
+        PID Service.
         """
         return EventListener()
 
@@ -177,7 +178,50 @@ class TestEventListener:
         assert mock_nack.call_args[0][3] == 1
 
 
-class TestEventLinkedHandler:
+class AbstractBaseHandler(ABC):
+    @pytest.mark.parametrize(
+        "actual_amount,expected_amount",
+        [(1, 1), (2, -1)]
+    )
+    def test_get_fragment(self, actual_amount, expected_amount, handler):
+        result_dict = {"TotalNrOfResults": actual_amount}
+        mh_client_mock = handler.mh_client
+        mh_client_mock.get_fragment.return_value = result_dict
+
+        key_values = [("key", "value")]
+        assert handler._get_fragment(key_values, expected_amount) == result_dict
+        assert mh_client_mock.get_fragment.call_count == 1
+        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+
+    def test_get_fragment_nr_of_results_mismatch(self, handler):
+        result_dict = {"TotalNrOfResults": 1}
+        mh_client_mock = handler.mh_client
+        mh_client_mock.get_fragment.return_value = result_dict
+
+        key_values = [("key", "value")]
+        with pytest.raises(NackException):
+            handler._get_fragment(key_values, 2)
+        assert mh_client_mock.get_fragment.call_count == 1
+        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+
+    def test_get_fragment_http_error(self, http_error, handler):
+        mh_client_mock = handler.mh_client
+        # Raise a HTTP Error when calling method
+        handler.mh_client.get_fragment.side_effect = http_error
+
+        key_values = [("key", "value")]
+        with pytest.raises(NackException) as error:
+            handler._get_fragment(key_values)
+        assert not error.value.requeue
+        assert error.value.kwargs["error"] == http_error
+        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["query_key_values"] == key_values
+
+        assert mh_client_mock.get_fragment.call_count == 1
+        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+
+
+class TestEventLinkedHandler(AbstractBaseHandler):
     @pytest.fixture
     def handler(self):
         """ Creates an essence linked handler with a mocked logger, rabbit client,
@@ -235,7 +279,16 @@ class TestEventLinkedHandler:
     ):
         handler.handle_event("irrelevant")
         assert mock_parse_event.call_count == 1
-        assert mock_get_fragment.call_count == 1
+        assert mock_get_fragment.call_count == 2
+
+        # First call
+        args = ([("s3_object_key", mock_parse_event().file), ("IsFragment", 0)], 1)
+        assert mock_get_fragment.call_args_list[0][0] == args
+
+        # Second call
+        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 0)
+        assert mock_get_fragment.call_args_list[1][0] == args
+
         assert mock_parse_umid.call_count == 1
         assert mock_create_fragment.call_count == 1
         assert mock_parse_fragment_id.call_count == 1
@@ -245,31 +298,6 @@ class TestEventLinkedHandler:
         assert handler.rabbit_client.send_message.call_count == 1
         assert handler.rabbit_client.send_message.call_args[0][0] == "xml"
         assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
-
-    def test_get_fragment(self, handler):
-        mh_client_mock = handler.mh_client
-        mh_client_mock.get_fragment.return_value = {}
-
-        assert handler._get_fragment("file") == {}
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == "s3_object_key"
-        assert mh_client_mock.get_fragment.call_args[0][1] == "file"
-
-    def test_get_fragment_http_error(self, http_error, handler):
-        mh_client_mock = handler.mh_client
-        # Raise a HTTP Error when calling method
-        handler.mh_client.get_fragment.side_effect = http_error
-
-        with pytest.raises(NackException) as error:
-            handler._get_fragment("file")
-
-        assert error.value.kwargs["error"] == http_error
-        assert error.value.kwargs["error_response"] == http_error.response.text
-        assert error.value.kwargs["s3_object_key"] == "file"
-
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == "s3_object_key"
-        assert mh_client_mock.get_fragment.call_args[0][1] == "file"
 
     def test_parse_umid(self, handler):
         object_id = "object id"
@@ -402,38 +430,12 @@ class TestEventLinkedHandler:
         assert error.value.kwargs.get("error") is None
 
 
-class AbstractTestDeleteFragmentHandler(ABC):
-
+class AbstractTestDeleteFragmentHandler(AbstractBaseHandler):
     def test_parse_event_invalid(self, handler):
         event = b""
         with pytest.raises(NackException) as error:
             handler._parse_event(event)
         assert not error.value.requeue
-
-    def test_get_fragment(self, handler):
-        mh_client_mock = handler.mh_client
-        mh_client_mock.get_fragment.return_value = {}
-
-        assert handler._get_fragment("media_id") == {}
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == "dc_identifier_localid"
-        assert mh_client_mock.get_fragment.call_args[0][1] == "media_id"
-
-    def test_get_fragment_http_error(self, http_error, handler):
-        mh_client_mock = handler.mh_client
-        # Raise a HTTP Error when calling method
-        handler.mh_client.get_fragment.side_effect = http_error
-
-        with pytest.raises(NackException) as error:
-            handler._get_fragment("media_id")
-        assert not error.value.requeue
-        assert error.value.kwargs["error"] == http_error
-        assert error.value.kwargs["error_response"] == http_error.response.text
-        assert error.value.kwargs["dc_identifier_localid"] == "media_id"
-
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == "dc_identifier_localid"
-        assert mh_client_mock.get_fragment.call_args[0][1] == "media_id"
 
     def test_parse_fragment_id(self, handler):
         fragment_id = "fragment id"
@@ -521,6 +523,8 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
+        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 1)
+        assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1
         assert mock_delete_fragment.call_count == 1
@@ -558,6 +562,8 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
+        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 1)
+        assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1
         assert mock_delete_fragment.call_count == 1
