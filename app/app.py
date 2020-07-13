@@ -43,6 +43,10 @@ class BaseHandler(ABC):
     def handle_event(self, message: str):
         pass
 
+    @abstractmethod
+    def _parse_event(self, message: str) -> EssenceEvent:
+        pass
+
     def _get_fragment(self, query_key_values: List[Tuple[str, object]], expected_amount: int = -1) -> dict:
         """ Gets a fragment based on a query given a list of keys and values.
 
@@ -317,7 +321,7 @@ class DeleteFragmentHandler(BaseHandler):
         media_id = event.media_id
 
         # Get the fragment based on the media_id
-        fragment = self._get_fragment([("dc_identifier_localid", media_id)], 1)
+        fragment = self._get_fragment([("dc_identifier_localid", media_id), ("IsFragment", 1)], 1)
 
         # Parse the fragment_id from the MediaHaven object
         fragment_id = self._parse_fragment_id(fragment)
@@ -331,10 +335,6 @@ class DeleteFragmentHandler(BaseHandler):
             )
 
         self.log.info(f"Successfully deleted fragment with ID: {fragment_id}")
-
-    @abstractmethod
-    def _parse_event(self, message: str) -> EssenceEvent:
-        pass
 
     def _parse_fragment_id(self, fragment: dict) -> str:
         try:

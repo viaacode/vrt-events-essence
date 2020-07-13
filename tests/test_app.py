@@ -11,7 +11,6 @@ from lxml import etree
 from requests.exceptions import HTTPError, RequestException
 
 from app.app import (
-    BaseHandler,
     EssenceLinkedHandler,
     EssenceUnlinkedHandler,
     EventListener,
@@ -523,7 +522,7 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 1)
+        args = ([("dc_identifier_localid", mock_parse_event().media_id), ("IsFragment", 1)], 1)
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1
@@ -562,7 +561,7 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id)], 1)
+        args = ([("dc_identifier_localid", mock_parse_event().media_id), ("IsFragment", 1)], 1)
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
         assert mock_parse_fragment.call_count == 1
