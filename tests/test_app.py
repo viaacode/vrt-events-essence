@@ -18,7 +18,8 @@ from app.app import (
     ObjectDeletedHandler,
     UnknownRoutingKeyHandler,
 )
-from tests.resources.resources import load_xml_resource, construct_filename
+from app.helpers.events_parser import EssenceEvent, InvalidEventException
+from tests.resources.resources import load_resource, construct_filename
 
 
 @pytest.fixture
@@ -245,16 +246,17 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert is_xml_valid
 
     def test_parse_event(self, handler):
-        event = load_xml_resource("essenceLinkedEvent.xml")
+        event = load_resource("essenceLinkedEvent.xml")
         event = handler._parse_event(event)
         assert event is not None
         assert event.file == "file.mxf"
 
-    def test_parse_event_invalid(self, handler):
-        event = b""
+    @patch.object(EssenceEvent, '__init__', side_effect=InvalidEventException("error"))
+    def test_parse_event_invalid(self, init_mock, handler):
         with pytest.raises(NackException) as error:
-            handler._parse_event(event)
+            handler._parse_event("")
         assert not error.value.requeue
+        assert error.value.kwargs["error"] == init_mock.side_effect
 
     @patch.object(EssenceLinkedHandler, "_parse_event")
     @patch.object(EssenceLinkedHandler, "_get_fragment")
@@ -430,11 +432,12 @@ class TestEventLinkedHandler(AbstractBaseHandler):
 
 
 class AbstractTestDeleteFragmentHandler(AbstractBaseHandler):
-    def test_parse_event_invalid(self, handler):
-        event = b""
+    @patch.object(EssenceEvent, '__init__', side_effect=InvalidEventException("error"))
+    def test_parse_event_invalid(self, init_mock, handler):
         with pytest.raises(NackException) as error:
-            handler._parse_event(event)
+            handler._parse_event("")
         assert not error.value.requeue
+        assert error.value.kwargs["error"] == init_mock.side_effect
 
     def test_parse_fragment_id(self, handler):
         fragment_id = "fragment id"
@@ -497,7 +500,7 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
         return EssenceUnlinkedHandler(MagicMock(), MagicMock())
 
     def test_parse_event(self, handler):
-        event = load_xml_resource("essenceUnlinkedEvent.xml")
+        event = load_resource("essenceUnlinkedEvent.xml")
         event = handler._parse_event(event)
         assert event is not None
         assert event.media_id == "media id"
@@ -536,7 +539,7 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
         return ObjectDeletedHandler(MagicMock(), MagicMock())
 
     def test_parse_event(self, handler):
-        event = load_xml_resource("objectDeletedEvent.xml")
+        event = load_resource("objectDeletedEvent.xml")
         event = handler._parse_event(event)
         assert event is not None
         assert event.media_id == "media id"

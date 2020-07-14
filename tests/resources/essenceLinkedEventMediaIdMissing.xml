@@ -1,0 +1,5 @@
+<?xml version='1.0'?>
+<ns2:essenceLinkedEvent xmlns:ns2="http://www.vrt.be/mig/viaa/api" xmlns="http://www.vrt.be/mig/viaa" xmlns:ns3="http://purl.org/dc/elements/1.1/" xmlns:ns4="urn:ebu:metadata-schema:ebuCore_2012">
+  <ns2:timestamp>2019-09-24T17:21:28.787+02:00</ns2:timestamp>
+  <ns2:file>file.mxf</ns2:file>
+</ns2:essenceLinkedEvent>

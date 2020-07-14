@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List, Tuple
 
-from lxml.etree import XMLSyntaxError
 from pika.exceptions import AMQPConnectionError
 from requests.exceptions import HTTPError, RequestException
 
@@ -16,6 +15,7 @@ from app.helpers.events_parser import (
     EssenceEvent,
     EssenceLinkedEvent,
     EssenceUnlinkedEvent,
+    InvalidEventException,
     ObjectDeletedEvent,
 )
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
@@ -183,7 +183,7 @@ class EssenceLinkedHandler(BaseHandler):
     def _parse_event(self, message: str) -> EssenceLinkedEvent:
         try:
             event = EssenceLinkedEvent(message)
-        except XMLSyntaxError as error:
+        except InvalidEventException as error:
             raise NackException(
                 "Unable to parse the incoming essence linked event",
                 error=error,
@@ -377,7 +377,7 @@ class EssenceUnlinkedHandler(DeleteFragmentHandler):
         )
         try:
             event = EssenceUnlinkedEvent(message)
-        except XMLSyntaxError as error:
+        except InvalidEventException as error:
             raise NackException(
                 "Unable to parse the incoming essence unlinked event",
                 error=error,
@@ -395,7 +395,7 @@ class ObjectDeletedHandler(DeleteFragmentHandler):
         )
         try:
             event = ObjectDeletedEvent(message)
-        except XMLSyntaxError as error:
+        except InvalidEventException as error:
             raise NackException(
                 "Unable to parse the incoming object deleted event",
                 error=error,
