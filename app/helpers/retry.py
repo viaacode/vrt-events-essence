@@ -1,7 +1,6 @@
 import functools
 import time
 
-from viaa.configuration import ConfigParser
 from viaa.observability import logging
 
 log = logging.get_logger(__name__)
@@ -11,6 +10,7 @@ log.setLevel("DEBUG")
 class RetryException(Exception):
     """ Exception raised when an action needs to be retried
     in combination with _retry decorator"""
+
     pass
 
 
@@ -32,10 +32,12 @@ def retry(exceptions):
                 except exceptions as error:
                     log.debug(
                         f"{error}. Retrying in {delay} seconds.",
-                        try_count=NUMBER_OF_TRIES - tries
+                        try_count=NUMBER_OF_TRIES - tries,
                     )
                     time.sleep(delay)
                     delay *= BACKOFF
             return False
+
         return wrapper
+
     return decorator_retry

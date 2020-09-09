@@ -439,17 +439,6 @@ class AbstractTestDeleteFragmentHandler(AbstractBaseHandler):
         assert not error.value.requeue
         assert error.value.kwargs["error"] == init_mock.side_effect
 
-    def test_parse_fragment_id(self, handler):
-        fragment_id = "fragment id"
-        response = {"MediaDataList": [{"Internal": {"FragmentId": fragment_id}}]}
-        assert handler._parse_fragment_id(response) == fragment_id
-
-    def test_parse_fragment_id_key_error(self, handler):
-        fragment_id = "fragment id"
-        response = {"wrong": fragment_id}
-        with pytest.raises(NackException) as error:
-            handler._parse_fragment_id(response)
-        assert not error.value.requeue
 
     def test_delete_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -506,13 +495,13 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
         assert event.media_id == "media id"
 
     @patch.object(EssenceUnlinkedHandler, "_parse_event")
-    @patch.object(EssenceUnlinkedHandler, "_get_fragment")
-    @patch.object(EssenceUnlinkedHandler, "_parse_fragment_id")
+    @patch.object(EssenceUnlinkedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0})
+    @patch.object(EssenceUnlinkedHandler, "_parse_fragment_ids")
     @patch.object(EssenceUnlinkedHandler, "_delete_fragment",  return_value=False)
     def test_handle_event_delete_false(
         self,
         mock_delete_fragment,
-        mock_parse_fragment,
+        mock_parse_fragment_ids,
         mock_get_fragment,
         mock_parse_event,
         handler
@@ -525,11 +514,9 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id), ("IsFragment", 1)], 1)
+        args = ([("dc_identifier_localid", mock_parse_event().media_id),],)
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
-        assert mock_parse_fragment.call_count == 1
-        assert mock_delete_fragment.call_count == 1
 
 
 class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
@@ -545,13 +532,13 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
         assert event.media_id == "media id"
 
     @patch.object(ObjectDeletedHandler, "_parse_event")
-    @patch.object(ObjectDeletedHandler, "_get_fragment")
-    @patch.object(ObjectDeletedHandler, "_parse_fragment_id")
+    @patch.object(ObjectDeletedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0})
+    @patch.object(ObjectDeletedHandler, "_parse_fragment_ids")
     @patch.object(ObjectDeletedHandler, "_delete_fragment",  return_value=False)
     def test_handle_event_delete_false(
         self,
         mock_delete_fragment,
-        mock_parse_fragment,
+        mock_parse_fragment_ids,
         mock_get_fragment,
         mock_parse_event,
         handler
@@ -564,11 +551,9 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id), ("IsFragment", 1)], 1)
+        args = ([("dc_identifier_localid", mock_parse_event().media_id),],)
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
-        assert mock_parse_fragment.call_count == 1
-        assert mock_delete_fragment.call_count == 1
 
 
 class TestUnknownRoutingKeyHandler:

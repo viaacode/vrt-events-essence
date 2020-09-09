@@ -7,7 +7,7 @@ from requests.exceptions import RequestException
 from app.helpers.retry import retry
 
 
-class PIDService():
+class PIDService:
     """Abstraction to the pid-generating service.
     See: https://github.com/viaacode/pid_webservice
     The service returns a JSON as such:
