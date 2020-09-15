@@ -75,7 +75,7 @@ class BaseHandler(ABC):
                 f"Unable to retrieve fragment for {query_key_values}",
                 error=error,
                 error_response=error.response.text,
-                query_key_values=query_key_values
+                query_key_values=query_key_values,
             )
         return response_dict
 
@@ -134,8 +134,7 @@ class EssenceLinkedHandler(BaseHandler):
             NackError -- When something went wrong
         """
         self.log.info(
-            'Start handling essence linked event',
-            essence_linked_event=message
+            "Start handling essence linked event", essence_linked_event=message
         )
 
         # Parse event
@@ -215,10 +214,7 @@ class EssenceLinkedHandler(BaseHandler):
             )
         except RequestException as error:
             raise NackException(
-                "Unable to connect to MediaHaven",
-                error=error,
-                umid=umid,
-                requeue=True
+                "Unable to connect to MediaHaven", error=error, umid=umid, requeue=True
             )
         return create_fragment_response
 
@@ -320,36 +316,42 @@ class DeleteFragmentHandler(BaseHandler):
 
         media_id = event.media_id
 
-        # Get the fragment based on the media_id
-        fragment = self._get_fragment([("dc_identifier_localid", media_id), ("IsFragment", 1)], 1)
+        # Get all items for the media id (this will include the fragment + collaterals)
+        response = self._get_fragment([("dc_identifier_localid", media_id)])
 
-        # Parse the fragment_id from the MediaHaven object
-        fragment_id = self._parse_fragment_id(fragment)
+        if not response["TotalNrOfResults"]:
+            raise NackException(
+                f"No fragments found for media id: {media_id}",
+                media_id=media_id,
+            )
+
+        # Get each item's fragment id in a list and raise an error if there are no results.
+        fragment_ids = self._parse_fragment_ids(response["MediaDataList"])
 
         # Delete the fragment for the fragment_id
-        result = self._delete_fragment(fragment_id)
-        if not result:
-            raise NackException(
-                f"Unable to delete the fragment for fragment id: {fragment_id}",
-                fragment_id=fragment_id
+        for fragment_id in fragment_ids:
+            self.log.debug(
+                f"Deleting fragment for object with fragment id: {fragment_id}",
+                fragment_id=fragment_id,
+                media_id=media_id,
             )
+            result = self._delete_fragment(fragment_id)
+            if not result:
+                raise NackException(
+                    f"Unable to delete the fragment for fragment id: {fragment_id}",
+                    fragment_id=fragment_id,
+                    media_id=media_id,
+                )
 
-        self.log.info(f"Successfully deleted fragment with ID: {fragment_id}")
+        self.log.info(f"Successfully deleted {len(fragment_ids)} item(s) with media id: {media_id}")
 
-    def _parse_fragment_id(self, fragment: dict) -> str:
-        try:
-            fragment_id = fragment["MediaDataList"][0]["Internal"]["FragmentId"]
-        except KeyError as error:
-            raise NackException(
-                "FragmentId not found in the MediaHaven object",
-                error=error,
-                fragment=fragment,
-            )
-        return fragment_id
+    def _parse_fragment_ids(self, items: List[dict]) -> List[str]:
+        fragment_ids = [item["Internal"]["FragmentId"] for item in items]
+
+        return fragment_ids
 
     def _delete_fragment(self, fragment_id: str) -> bool:
         try:
-            self.log.debug(f"Deleting fragment for object with fragment id: {fragment_id}")
             result = self.mh_client.delete_fragment(fragment_id)
         except HTTPError as error:
             raise NackException(
@@ -363,7 +365,7 @@ class DeleteFragmentHandler(BaseHandler):
                 "Unable to connect to MediaHaven",
                 error=error,
                 fragment_id=fragment_id,
-                requeue=True
+                requeue=True,
             )
         return result
 
@@ -372,8 +374,7 @@ class EssenceUnlinkedHandler(DeleteFragmentHandler):
     """ Class that will handle an incoming essence unlinked event """
     def _parse_event(self, message: str) -> EssenceUnlinkedEvent:
         self.log.info(
-            'Start handling essence unlinked event',
-            essence_unlinked_event=message
+            "Start handling essence unlinked event", essence_unlinked_event=message
         )
         try:
             event = EssenceUnlinkedEvent(message)
@@ -390,8 +391,7 @@ class ObjectDeletedHandler(DeleteFragmentHandler):
     """ Class that will handle an incoming object deleted event """
     def _parse_event(self, message: str) -> ObjectDeletedEvent:
         self.log.info(
-            'Start handling object deleted event',
-            object_deleted_event=message
+            "Start handling object deleted event", object_deleted_event=message
         )
         try:
             event = ObjectDeletedEvent(message)
@@ -411,8 +411,7 @@ class UnknownRoutingKeyHandler:
 
     def handle_event(self, message: str):
         raise NackException(
-            f"Unknown routing key: {self.routing_key}",
-            incoming_message=message
+            f"Unknown routing key: {self.routing_key}", incoming_message=message
         )
 
 
@@ -465,13 +464,12 @@ class EventListener:
         """
         routing_key = method.routing_key
         self.log.info(
-            f"Incoming message with routing key: {routing_key}",
-            incoming_message=body,
+            f"Incoming message with routing key: {routing_key}", incoming_message=body,
         )
         handler = self._calculate_handler(routing_key)
         try:
             handler.handle_event(body)
-        except(NackException) as e:
+        except NackException as e:
             self._handle_nack_exception(e, channel, method.delivery_tag)
             return
         channel.basic_ack(delivery_tag=method.delivery_tag)
