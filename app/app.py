@@ -343,7 +343,7 @@ class DeleteFragmentHandler(BaseHandler):
                     media_id=media_id,
                 )
 
-        self.log.info(f"Successfully deleted item with media id: {media_id}")
+        self.log.info(f"Successfully deleted {len(fragment_ids)} item(s) with media id: {media_id}")
 
     def _parse_fragment_ids(self, items: List[dict]) -> List[str]:
         fragment_ids = [item["Internal"]["FragmentId"] for item in items]
