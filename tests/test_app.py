@@ -220,6 +220,21 @@ class AbstractBaseHandler(ABC):
         assert mh_client_mock.get_fragment.call_count == 1
         assert mh_client_mock.get_fragment.call_args[0][0] == key_values
 
+    def test_get_fragment_request_exception(self, handler):
+        mh_client_mock = handler.mh_client
+        # Raise a HTTP Error when calling method
+        request_exception = RequestException()
+        handler.mh_client.get_fragment.side_effect = request_exception
+
+        key_values = [("key", "value")]
+        with pytest.raises(NackException) as error:
+            handler._get_fragment(key_values)
+        assert error.value.requeue
+        assert error.value.kwargs["error"] == request_exception
+
+        assert mh_client_mock.get_fragment.call_count == 1
+        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+
 
 class TestEventLinkedHandler(AbstractBaseHandler):
     @pytest.fixture

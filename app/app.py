@@ -77,6 +77,12 @@ class BaseHandler(ABC):
                 error_response=error.response.text,
                 query_key_values=query_key_values,
             )
+        except RequestException as error:
+            raise NackException(
+                "Unable to connect to MediaHaven",
+                error=error,
+                requeue=True
+            )
         return response_dict
 
 
