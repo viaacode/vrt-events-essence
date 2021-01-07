@@ -158,6 +158,9 @@ class EssenceLinkedHandler(BaseHandler):
         # Parse the umid from the MediaHaven object
         umid = self._parse_umid(fragment)
 
+        # Parse the intellectual entity type from the MediaHaven object
+        ie_type = self._parse_ie_type(fragment)
+
         # Get a pid to use for the new fragment
         pid = self._get_pid()
 
@@ -167,8 +170,8 @@ class EssenceLinkedHandler(BaseHandler):
         # Parse the fragmentId from the response of the newly created fragment.
         fragment_id = self._parse_fragment_id(create_fragment_response)
 
-        # Add Media_id to the newly created fragment
-        self._add_metadata(fragment_id, media_id, pid)
+        # Add Media ID, PID and information for DEEWEE to the newly created fragment
+        self._add_metadata(fragment_id, media_id, pid, ie_type)
 
         # Build metadata request XML
         xml = self._generate_get_metadata_request_xml(
@@ -206,6 +209,13 @@ class EssenceLinkedHandler(BaseHandler):
                 fragment=fragment,
             )
         return umid
+
+    def _parse_ie_type(self, fragment: dict) -> str:
+        try:
+            ie_type = fragment["MediaDataList"][0]["Administrative"]["Type"]
+        except KeyError:
+            return None
+        return ie_type
 
     def _create_fragment(self, umid: str) -> dict:
         try:
@@ -251,8 +261,8 @@ class EssenceLinkedHandler(BaseHandler):
             raise NackException("Unable to get a pid", requeue=True)
         return pid
 
-    def _add_metadata(self, fragment_id: str, media_id: str, pid: str):
-        """ Adds the media ID and PID as metadata to the fragment.
+    def _add_metadata(self, fragment_id: str, media_id: str, pid: str, ie_type: str):
+        """ Adds the media ID, PID and information for DEEWEE as metadata to the fragment.
 
         This method is called after getting a success back from MH when sending out
         a request creating the fragment. However with how MH works, it is possible
@@ -270,13 +280,14 @@ class EssenceLinkedHandler(BaseHandler):
             fragment_id -- ID of fragment to add the metadata to.
             media_id -- Media ID to add as metadata.
             pid -- PID to add as metadata.
+            ie_type -- The type of intellectual entity: 'audio' or 'video'
 
         Raises:
             NackException -- When we were unable to add the metadata (see above).
         """
 
         try:
-            result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id, pid)
+            result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id, pid, ie_type)
         except HTTPError as error:
             raise NackException(
                 f"Unable to add MediaID metadata for fragment_id: {fragment_id}",

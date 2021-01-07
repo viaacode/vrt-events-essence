@@ -276,6 +276,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
     @patch.object(EssenceLinkedHandler, "_parse_event")
     @patch.object(EssenceLinkedHandler, "_get_fragment")
     @patch.object(EssenceLinkedHandler, "_parse_umid")
+    @patch.object(EssenceLinkedHandler, "_parse_ie_type")
     @patch.object(EssenceLinkedHandler, "_get_pid")
     @patch.object(EssenceLinkedHandler, "_create_fragment")
     @patch.object(EssenceLinkedHandler, "_parse_fragment_id")
@@ -288,6 +289,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         mock_parse_fragment_id,
         mock_create_fragment,
         mock_get_pid,
+        mock_parse_ie_type,
         mock_parse_umid,
         mock_get_fragment,
         mock_parse_event,
@@ -306,6 +308,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert mock_get_fragment.call_args_list[1][0] == args
 
         assert mock_parse_umid.call_count == 1
+        assert mock_parse_ie_type.call_count == 1
         assert mock_create_fragment.call_count == 1
         assert mock_parse_fragment_id.call_count == 1
         assert mock_get_pid.call_count == 1
@@ -326,6 +329,16 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         with pytest.raises(NackException) as error:
             handler._parse_umid(fragment)
         assert not error.value.requeue
+
+    @pytest.mark.parametrize(
+        "fragment, type",
+        [
+            ({"MediaDataList": [{"Administrative": {"Type": "video"}}]}, "video"),
+            ({"wrong": "video"}, None)
+        ]
+    )
+    def test_parse_ie_type(self, handler, fragment, type):
+        assert handler._parse_ie_type(fragment) == type
 
     def test_get_pid(self, handler):
         pid_service_mock = handler.pid_service
@@ -399,28 +412,31 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         fragment_id = "fragment id"
         media_id = "media id"
         pid = "pid"
+        ie_type = "video"
 
         # Return True, which means the action was successful
         mh_client_mock.add_metadata_to_fragment.return_value = True
 
-        assert handler._add_metadata(fragment_id, media_id, pid) is None
+        assert handler._add_metadata(fragment_id, media_id, pid, ie_type) is None
         assert mh_client_mock.add_metadata_to_fragment.call_count == 1
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
+        assert mh_client_mock.add_metadata_to_fragment.call_args[0][3] == ie_type
 
     def test_add_metadata_http_error(self, http_error, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
         pid = "pid"
+        ie_type = "video"
 
         # Raise a HTTP Error when calling method
         http_error.status_code = 400
         mh_client_mock.add_metadata_to_fragment.side_effect = http_error
 
         with pytest.raises(NackException) as error:
-            handler._add_metadata(fragment_id, media_id, pid)
+            handler._add_metadata(fragment_id, media_id, pid, ie_type)
         assert not error.value.requeue
         assert error.value.kwargs["error"] == http_error
         assert error.value.kwargs["error_response"] == http_error.response.text
@@ -431,17 +447,19 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
         assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
+        assert mh_client_mock.add_metadata_to_fragment.call_args[0][3] == ie_type
 
     def test_add_metadata_false(self, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
         pid = "pid"
+        ie_type = "video"
 
         mh_client_mock.add_metadata_to_fragment.return_value = False
 
         with pytest.raises(NackException) as error:
-            handler._add_metadata(fragment_id, media_id, pid)
+            handler._add_metadata(fragment_id, media_id, pid, ie_type)
         assert not error.value.requeue
         assert error.value.kwargs.get("error") is None
 
@@ -453,7 +471,6 @@ class AbstractTestDeleteFragmentHandler(AbstractBaseHandler):
             handler._parse_event("")
         assert not error.value.requeue
         assert error.value.kwargs["error"] == init_mock.side_effect
-
 
     def test_delete_fragment(self, handler):
         mh_client_mock = handler.mh_client
@@ -529,7 +546,7 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id),],)
+        args = ([("dc_identifier_localid", mock_parse_event().media_id), ],)
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
 
@@ -566,7 +583,7 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id),],)
+        args = ([("dc_identifier_localid", mock_parse_event().media_id), ],)
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
 
