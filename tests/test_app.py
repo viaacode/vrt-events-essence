@@ -331,14 +331,14 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert not error.value.requeue
 
     @pytest.mark.parametrize(
-        "fragment, type",
+        "fragment, ie_type",
         [
             ({"MediaDataList": [{"Administrative": {"Type": "video"}}]}, "video"),
             ({"wrong": "video"}, None)
         ]
     )
-    def test_parse_ie_type(self, handler, fragment, type):
-        assert handler._parse_ie_type(fragment) == type
+    def test_parse_ie_type(self, handler, fragment, ie_type):
+        assert handler._parse_ie_type(fragment) == ie_type
 
     def test_get_pid(self, handler):
         pid_service_mock = handler.pid_service
