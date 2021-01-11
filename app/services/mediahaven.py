@@ -138,14 +138,14 @@ class MediahavenClient:
 
     @retry(RetryException)
     @__authenticate
-    def add_metadata_to_fragment(self, fragment_id: str, media_id: str, pid: str) -> bool:
+    def add_metadata_to_fragment(self, fragment_id: str, media_id: str, pid: str, ie_type: str) -> bool:
         headers = self._construct_headers()
 
         # Construct the URL to POST to
         url = f'{self.url}{fragment_id}'
 
         # Create the payload
-        sidecar = self._construct_metadata(media_id, pid)
+        sidecar = self._construct_metadata(media_id, pid, ie_type)
         data = {"metadata": sidecar, "reason": "essenceLinked: add mediaID and PID to fragment"}
 
         # Send the POST request, as multipart/form-data
@@ -165,8 +165,8 @@ class MediahavenClient:
 
         return response.status_code == 204
 
-    def _construct_metadata(self, media_id: str, pid: str) -> str:
-        """Create the sidecar XML to upload the media id metadata.
+    def _construct_metadata(self, media_id: str, pid: str, ie_type: str) -> str:
+        """Create the sidecar XML to upload the metadata.
 
         Returns:
             str -- The metadata sidecar XML.
@@ -182,6 +182,12 @@ class MediahavenClient:
         local_ids = etree.SubElement(dynamic, "dc_identifier_localids")
         # /Dynamic/dc_identifier_localids/MEDIA_ID
         etree.SubElement(local_ids, "MEDIA_ID").text = media_id
+        # /Dynamic/object_level
+        etree.SubElement(dynamic, "object_level").text = "ie"
+        # /Dynamic/object_use
+        etree.SubElement(dynamic, "object_use").text = "archive_master"
+        # /Dynamic/ie_type
+        etree.SubElement(dynamic, "ie_type").text = ie_type
 
         return etree.tostring(
             root,

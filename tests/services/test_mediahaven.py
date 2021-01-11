@@ -36,12 +36,13 @@ class TestMediahaven:
     def test_construct_metadata(self, mediahaven_client):
         media_id = "media id"
         pid = "pid"
+        ie_type = "video"
 
         # Load in XML schema
         schema = etree.XMLSchema(file=construct_filename("mhs.xsd"))
 
         # Create the sidecar XML
-        xml = mediahaven_client._construct_metadata(media_id, pid)
+        xml = mediahaven_client._construct_metadata(media_id, pid, ie_type)
         tree = etree.parse(BytesIO(xml.encode("utf-8")))
 
         # Assert validness according to schema
@@ -56,6 +57,9 @@ class TestMediahaven:
         )
         assert m_id_element[0].text == media_id
         assert tree.xpath("mhs:Dynamic/PID", namespaces=NSMAP)[0].text == pid
+        assert tree.xpath("mhs:Dynamic/object_level", namespaces=NSMAP)[0].text == "ie"
+        assert tree.xpath("mhs:Dynamic/object_use", namespaces=NSMAP)[0].text == "archive_master"
+        assert tree.xpath("mhs:Dynamic/ie_type", namespaces=NSMAP)[0].text == ie_type
 
     @pytest.mark.parametrize(
         "status, code, message",
@@ -80,6 +84,7 @@ class TestMediahaven:
         fragment_id = "fragment_id"
         media_id = "media_id"
         pid = "PID"
+        ie_type = "video"
 
-        assert not mediahaven_client.add_metadata_to_fragment(fragment_id, media_id, pid)
+        assert not mediahaven_client.add_metadata_to_fragment(fragment_id, media_id, pid, ie_type)
         assert sleep_mock.call_count == NUMBER_OF_TRIES
