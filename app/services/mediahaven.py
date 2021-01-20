@@ -117,14 +117,16 @@ class MediahavenClient:
         return response.json()
 
     @__authenticate
-    def delete_fragment(self, fragment_id: str) -> dict:
+    def delete_fragment(self, fragment_id: str, reason: str = "", event_type: str = "") -> dict:
         headers = self._construct_headers()
 
         # Construct the URL to post to
         url = f'{self.url}{fragment_id}'
 
+        data = {"reason": reason, "eventType": event_type.upper()}
+
         # Send the DELETE request
-        response = requests.delete(url, headers=headers)
+        response = requests.delete(url, headers=headers, files=data)
 
         if response.status_code == 401:
             # AuthenticationException triggers a retry with a new token

@@ -352,7 +352,7 @@ class DeleteFragmentHandler(BaseHandler):
                 fragment_id=fragment_id,
                 media_id=media_id,
             )
-            result = self._delete_fragment(fragment_id)
+            result = self._delete_fragment(fragment_id, event.media_id, event.root_tag)
             if not result:
                 raise NackException(
                     f"Unable to delete the fragment for fragment id: {fragment_id}",
@@ -367,7 +367,7 @@ class DeleteFragmentHandler(BaseHandler):
 
         return fragment_ids
 
-    def _delete_fragment(self, fragment_id: str) -> bool:
+    def _delete_fragment(self, fragment_id: str, reason: str = "", event_type: str = "") -> bool:
         try:
             result = self.mh_client.delete_fragment(fragment_id)
         except HTTPError as error:
