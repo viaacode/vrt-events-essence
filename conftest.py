@@ -16,4 +16,5 @@ def env_setup(monkeypatch):
     monkeypatch.setenv("RABBITMQ_OBJECT_DELETED_ROUTING_KEY", "object_deleted")
     monkeypatch.setenv("RABBITMQ_GET_METADATA_ROUTING_KEY", "get_metadata")
     monkeypatch.setenv("RABBITMQ_DEAD_LETTER_EXCHANGE", "dlx")
+    monkeypatch.setenv("RABBITMQ_PREFETCH_COUNT", "1")
     monkeypatch.setenv("PID_URL", "url")
