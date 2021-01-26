@@ -19,5 +19,6 @@ app:
       get_metadata_routing_key: !ENV ${RABBITMQ_GET_METADATA_ROUTING_KEY}
       dead_letter_exchange: !ENV ${RABBITMQ_DEAD_LETTER_EXCHANGE}
       exchange_type: topic
+      prefetch_count: !ENV ${RABBITMQ_PREFETCH_COUNT}
     pid-service:
       URL: !ENV ${PID_URL}

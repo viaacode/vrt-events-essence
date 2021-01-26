@@ -33,6 +33,7 @@ class RabbitClient:
         )
 
         self.channel = self.connection.channel()
+        self.prefetch_count = int(self.rabbitConfig["prefetch_count"])
 
     def send_message(self, body, routing_key):
         try:
@@ -56,6 +57,9 @@ class RabbitClient:
                 try:
                     channel = self.connection.channel()
 
+                    channel.basic_qos(
+                        prefetch_count=self.prefetch_count, global_qos=False
+                    )
                     channel.basic_consume(
                         queue=queue, on_message_callback=on_message_callback
                     )
