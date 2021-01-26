@@ -175,7 +175,7 @@ class EssenceLinkedHandler(BaseHandler):
 
         # Build metadata request XML
         xml = self._generate_get_metadata_request_xml(
-            datetime.now().isoformat(),
+            datetime.now().astimezone().isoformat(), #Local timezone-aware timestamp
             media_id,  # Correlation_id is the media_id
             media_id,
         )

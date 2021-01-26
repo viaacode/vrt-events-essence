@@ -315,6 +315,8 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert mock_add_metadata.call_count == 1
         assert mock_generate_get_metadata_request_xml.call_count == 1
         assert handler.rabbit_client.send_message.call_count == 1
+        dt_string = mock_generate_get_metadata_request_xml.call_args[0][0]
+        assert type(datetime.strptime(dt_string, "%Y-%m-%dT%H:%M:%S.%f%z")) is datetime
         assert handler.rabbit_client.send_message.call_args[0][0] == "xml"
         assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
 
