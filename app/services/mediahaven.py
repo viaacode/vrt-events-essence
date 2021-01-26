@@ -73,8 +73,8 @@ class MediahavenClient:
     def get_fragment(self, query_key_values: List[Tuple[str, object]]) -> dict:
         headers = self._construct_headers()
 
-        # Construct URL query parameters as "+(k1:v1) +(k2:v2) +(k3:v3) ..."
-        query = " ".join([f'+({":".join(map(str, k_v))})' for k_v in query_key_values])
+        # Construct URL query parameters as '+(k1:"v1") +(k2:"v2") +(k3:"v3") ...'
+        query = " ".join([f'+({k_v[0]}: "{k_v[1]}")' for k_v in query_key_values])
 
         params_dict: dict = {
             "q": query,
