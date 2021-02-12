@@ -444,6 +444,7 @@ class EventListener:
             self.log.error("Connection to RabbitMQ failed.")
             raise error
         self.pid_service = PIDService(self.config["pid-service"]["URL"])
+        self.queue_name = self.config["rabbitmq"]["queue"]
         self.essence_linked_rk = self.config["rabbitmq"]["essence_linked_routing_key"]
         self.essence_unlinked_rk = self.config["rabbitmq"]["essence_unlinked_routing_key"]
         self.object_deleted_rk = self.config["rabbitmq"]["object_deleted_routing_key"]
@@ -493,5 +494,6 @@ class EventListener:
 
     def start(self):
         # Start listening for incoming messages
-        self.log.info("Start to listen for incoming essence events...")
-        self.rabbit_client.listen(self.handle_message)
+        self.log.info(f"Waiting for messages on queue {self.queue_name}...")
+        self.consumer_tag = self.rabbit_client.listen(self.handle_message)
+        self.log.info(f"Consumer tag is: {self.consumer_tag}...")
