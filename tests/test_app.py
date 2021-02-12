@@ -7,6 +7,7 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 import pytest
+import logging
 from lxml import etree
 from requests.exceptions import HTTPError, RequestException
 
@@ -21,14 +22,12 @@ from app.app import (
 from app.helpers.events_parser import EssenceEvent, InvalidEventException
 from tests.resources.resources import load_resource, construct_filename
 
-
 @pytest.fixture
 def http_error():
     response = MagicMock()
     response.status_code = 400
     response.text = "error"
     return HTTPError(response=response)
-
 
 class TestEventListener:
     @pytest.fixture
@@ -176,7 +175,14 @@ class TestEventListener:
         assert mock_nack.call_args[0][1].message == "error"
         assert mock_nack.call_args[0][2] == mock_channel
         assert mock_nack.call_args[0][3] == 1
+    
+    def test_startup_logs(self, caplog,event_listener):
+        logger = logging.getLogger(__name__)
+        logger.info(event_listener.start())
 
+        # Check if startup messages are logged
+        assert 'Waiting for' in (caplog.text)
+        assert 'Consumer tag is' in (caplog.text)
 
 class AbstractBaseHandler(ABC):
     @pytest.mark.parametrize(
