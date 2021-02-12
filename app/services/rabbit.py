@@ -48,7 +48,10 @@ class RabbitClient:
         except pika.exceptions.AMQPConnectionError as ce:
             raise ce
 
-    def listen(self, on_message_callback, queue=None):
+    def listen(self, on_message_callback, queue=None) -> str:
+
+        self.consumer_tag = 'Not yet created'
+
         if queue is None:
             queue = self.rabbitConfig["queue"]
 
@@ -60,7 +63,7 @@ class RabbitClient:
                     channel.basic_qos(
                         prefetch_count=self.prefetch_count, global_qos=False
                     )
-                    channel.basic_consume(
+                    self.consumer_tag = channel.basic_consume(
                         queue=queue, on_message_callback=on_message_callback
                     )
 
@@ -83,3 +86,4 @@ class RabbitClient:
             self.channel.stop_consuming()
 
         self.connection.close()
+        return self.consumer_tag
