@@ -495,5 +495,4 @@ class EventListener:
     def start(self):
         # Start listening for incoming messages
         self.log.info(f"Waiting for messages on queue {self.queue_name}...")
-        self.consumer_tag = self.rabbit_client.listen(self.handle_message)
-        self.log.info(f"Consumer tag is: {self.consumer_tag}...")
+        self.rabbit_client.listen(self.handle_message)

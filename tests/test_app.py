@@ -180,9 +180,8 @@ class TestEventListener:
         logger = logging.getLogger(__name__)
         logger.info(event_listener.start())
 
-        # Check if startup messages are logged
+        # Check if startup message is logged
         assert 'Waiting for' in (caplog.text)
-        assert 'Consumer tag is' in (caplog.text)
 
 class AbstractBaseHandler(ABC):
     @pytest.mark.parametrize(

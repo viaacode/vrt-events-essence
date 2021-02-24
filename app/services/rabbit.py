@@ -48,7 +48,7 @@ class RabbitClient:
         except pika.exceptions.AMQPConnectionError as ce:
             raise ce
 
-    def listen(self, on_message_callback, queue=None) -> str:
+    def listen(self, on_message_callback, queue=None):
 
         self.consumer_tag = 'Not yet created'
 
@@ -66,6 +66,7 @@ class RabbitClient:
                     self.consumer_tag = channel.basic_consume(
                         queue=queue, on_message_callback=on_message_callback
                     )
+                    self.log.info(f"Consumer tag is: {self.consumer_tag}...")
 
                     channel.start_consuming()
                 except pika.exceptions.StreamLostError:
@@ -86,4 +87,3 @@ class RabbitClient:
             self.channel.stop_consuming()
 
         self.connection.close()
-        return self.consumer_tag
