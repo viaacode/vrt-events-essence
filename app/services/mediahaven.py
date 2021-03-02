@@ -147,7 +147,7 @@ class MediahavenClient:
 
         # Create the payload
         sidecar = self._construct_metadata(media_id, pid, ie_type)
-        data = {"metadata": sidecar, "reason": "essenceLinked: add mediaID and PID to fragment"}
+        data = {"metadata": sidecar, "reason": f"essenceLinked: add mediaID {media_id} and PID {pid} to fragment"}
 
         # Send the POST request, as multipart/form-data
         response = requests.post(url, headers=headers, files=data)
