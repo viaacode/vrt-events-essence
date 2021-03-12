@@ -1,0 +1,52 @@
+@startuml vrt-events-essence
+
+autonumber
+
+title VRT Events Essence
+
+participant rabbit as "RabbitMQ"
+participant vee as "vrt-events-essence"
+participant mh as "MediaHaven"
+participant pid as "Pid Service"
+
+activate vee
+vee -> rabbit: Listen to queue
+alt Link
+    rabbit --> vee: essenceLinkedEvent
+    vee -> vee: Parse message (s3_object_key, media_id)
+    vee -> mh: Get main object based on s3_object_key
+    activate mh
+    mh --> vee: Return main object
+    alt Only one main object
+        vee -> mh: Check if there are no fragments with the media_id
+        mh --> vee: Return result
+        alt No fragments
+            vee -> vee: Parse main object (umid)
+            vee -> pid: Get PID
+            activate pid
+            pid --> vee: Return PID
+            deactivate pid
+            vee -> mh: Create fragment for umid
+            mh --> vee: Return result of created fragment
+            vee -> vee: Parse result (fragment_id)
+            vee -> mh: Add metadata (fragment_id, media_id, PID)
+            mh --> vee: Return result
+            vee -> vee: Generate metadata request XML
+            vee -> rabbit: Send getMetadataRequest XML message
+        else One or more fragments
+        end
+    else Zero or more than one main objects
+    end
+    
+else Unlink
+    rabbit --> vee: essenceUnlinkedEvent or objectDeletedEvent
+    vee -> vee: Parse message (media_id)
+    vee -> mh: Get fragment based on media_id
+    mh --> vee: Return fragment
+    vee -> vee: Parse fragment (fragment_id)
+    vee -> mh: Delete fragment based on fragment_id
+    mh --> vee: Return result
+    deactivate mh
+end
+
+@enduml
