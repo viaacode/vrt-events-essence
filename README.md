@@ -13,6 +13,15 @@ will be sent to the queue.
 - Python 3.6+
 - Access to the [meemoo PyPi](http://do-prd-mvn-01.do.viaa.be:8081)
 
+## Diagrams
+
+<details>
+  <summary>Sequence diagram (click to expand)</summary>
+
+  ![VRT Events Essence](http://www.plantuml.com/plantuml/proxy?src=https://raw.githubusercontent.com/viaacode/vrt-events-essence/master/docs/v-e-e_sequence-diagram.plantuml&fmt=svg)
+
+</details>
+
 ## Usage
 
 1. Clone this repository with:
