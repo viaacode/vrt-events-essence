@@ -39,7 +39,7 @@ pipeline {
     }
 
     stages {
-        stage('Checkout code') {
+        stage('Set some ENV vars') {
             steps {
                 script {
                     env.GIT_SHORT_COMMIT = sh(script: "printf \$(git rev-parse --short ${GIT_COMMIT})", returnStdout: true)
@@ -165,7 +165,7 @@ pipeline {
 }
 
 void getImageFromDockerfile() {
-    return 'python:3.7-slim'
+    return 'python:3.7'
 }
 
 void setGitHubBuildStatus(String message, String state) {
