@@ -69,7 +69,6 @@
                             </jenkins.branch.buildstrategies.basic.NamedBranchBuildStrategyImpl_-ExactNameFilter>
                         </filters>
                     </jenkins.branch.buildstrategies.basic.NamedBranchBuildStrategyImpl>
-                    <jenkins.branch.buildstrategies.basic.SkipInitialBuildOnFirstBranchIndexing plugin="basic-branch-build-strategies"/>
                     <jenkins.branch.buildstrategies.basic.TagBuildStrategyImpl plugin="basic-branch-build-strategies">
                         <atLeastMillis>-1</atLeastMillis>
                         <atMostMillis>86400000</atMostMillis>
