@@ -127,6 +127,7 @@ objects:
       MEDIAHAVEN_HOST: some_value
       MEDIAHAVEN_USERNAME: some_value
       MEDIAHAVEN_PASSWORD: some_value
+      PID_URL: some_value
 parameters:
   - name: env
     value: "env"
