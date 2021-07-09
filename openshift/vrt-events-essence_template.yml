@@ -40,7 +40,7 @@ objects:
       annotations:
         alpha.image.policy.openshift.io/resolve-names: "*"
         image.openshift.io/triggers: >-
-          [{'from':{'kind':'ImageStreamTag','name':'vrt-events-essence:${env}','namespace':'vrt-intake'},'fieldPath':'spec.template.spec.containers[?(@.name==\'vrt-events-essence-${env}\')].image','pause':'false'}]
+          [{"from":{"kind":"ImageStreamTag","name":"vrt-events-essence:${env}","namespace":"vrt-intake"},"fieldPath":"spec.template.spec.containers[?(@.name==\"vrt-events-essence-${env}\")].image","pause":"false"}]
       name: "vrt-events-essence-${env}"
       namespace: "vrt-intake"
       labels:

@@ -65,7 +65,6 @@ pipeline {
                 container('oc') {
                     script {
                         sh '''#!/bin/bash
-                        login_oc.sh $OC_URL > /dev/null || echo ok
                         oc project $OC_PROJECT
                         oc import-image $BASE_IMG --confirm
                         oc new-build -l ref=$BRANCH_NAME --strategy=docker --name $APP_NAME-$GIT_SHORT_COMMIT --to $APP_NAME:$GIT_SHORT_COMMIT --binary --context-dir="" || echo "Probably already exists, start new build"
@@ -187,7 +186,6 @@ void getAllCommitsBetweenTags(String from, String to) {
 void tagNewImage(String environment) {
     echo "Deploying to ${environment}"
     sh """#!/bin/bash
-    login_oc.sh $OC_URL > /dev/null || echo ok
     oc project $OC_PROJECT
     oc tag $APP_NAME:$GIT_SHORT_COMMIT $APP_NAME:${environment}
     # Check the status of the rollout
