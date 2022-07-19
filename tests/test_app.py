@@ -86,8 +86,8 @@ class TestEventListener:
         assert record.error_id == error_id
 
     def test_calculate_handler_essence_linked(self, event_listener):
-        routing_key = "essence_linked_routing_key"
-        event_listener.essence_linked_rk = routing_key
+        routing_key = "to.essence_linked_routing_key"
+        event_listener.essence_linked_rk = "essence_linked_routing_key"
 
         handler = event_listener._calculate_handler(routing_key)
         assert type(handler) == EssenceLinkedHandler
@@ -96,8 +96,8 @@ class TestEventListener:
         assert handler.routing_key == event_listener.get_metadata_rk
 
     def test_calculate_handler_essence_unlinked(self, event_listener):
-        routing_key = "essence_unlinked_routing_key"
-        event_listener.essence_unlinked_rk = routing_key
+        routing_key = "to.essence_unlinked_routing_key"
+        event_listener.essence_unlinked_rk = "essence_unlinked_routing_key"
 
         handler = event_listener._calculate_handler(routing_key)
         assert type(handler) == EssenceUnlinkedHandler
@@ -105,19 +105,19 @@ class TestEventListener:
 
     def test_calculate_handler_object_deleted(self, event_listener):
 
-        routing_key = "object_deleted_routing_key"
-        event_listener.object_deleted_rk = routing_key
+        routing_key = "to.object_deleted_routing_key"
+        event_listener.object_deleted_rk = "object_deleted_routing_key"
 
         handler = event_listener._calculate_handler(routing_key)
         assert type(handler) == ObjectDeletedHandler
         assert handler.mh_client == event_listener.mh_client
 
     def test_calculate_handler_unknown_routing_key(self, event_listener):
-        routing_key = "unknown_routing_key"
+        routing_key = "to.unknown_routing_key"
 
         handler = event_listener._calculate_handler(routing_key)
         assert type(handler) == UnknownRoutingKeyHandler
-        assert handler.routing_key == routing_key
+        assert handler.routing_key == "unknown_routing_key"
 
     @patch.object(EventListener, "_calculate_handler")
     def test_handle_message(self, mock_calculate_handler, event_listener):
