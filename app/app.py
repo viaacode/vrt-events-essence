@@ -458,7 +458,8 @@ class EventListener:
 
     def _calculate_handler(self, routing_key: str):
         """ Return the correct handler given the routing key """
-        if routing_key == self.essence_linked_rk:
+        event_type = routing_key.split(".")[-1]
+        if event_type == self.essence_linked_rk:
             return EssenceLinkedHandler(
                 self.log,
                 self.mh_client,
@@ -466,11 +467,11 @@ class EventListener:
                 self.get_metadata_rk,
                 self.pid_service
             )
-        if routing_key == self.essence_unlinked_rk:
+        if event_type == self.essence_unlinked_rk:
             return EssenceUnlinkedHandler(self.log, self.mh_client)
-        if routing_key == self.object_deleted_rk:
+        if event_type == self.object_deleted_rk:
             return ObjectDeletedHandler(self.log, self.mh_client)
-        return UnknownRoutingKeyHandler(routing_key)
+        return UnknownRoutingKeyHandler(event_type)
 
     def handle_message(self, channel, method, properties, body):
         """Main method that will handle the incoming messages.
