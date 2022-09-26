@@ -16,6 +16,7 @@ INVALID_ESSENCE_LINKED_EVENTS = [
     "essenceLinkedEventFileMissing.xml",
     "essenceLinkedEventMediaIdMissing.xml",
     "essencelinkedEventTimestampMissing.xml",
+    "essenceLinkedEventBucketMissing.xml"
 ]
 
 
