@@ -146,6 +146,11 @@ class EssenceLinkedHandler(BaseHandler):
         # Parse event
         event = self._parse_event(message)
 
+        # We do not handle original videos
+        if event.s3_bucket == "original-video":
+            self.log.info(f"Skipped {event.file} because it arrived in the {event.s3_bucket} bucket.")
+            return
+
         filename = event.file
         media_id = event.media_id
 

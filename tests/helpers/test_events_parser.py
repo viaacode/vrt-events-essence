@@ -36,6 +36,7 @@ def test_essence_linked_event_valid():
     assert event.timestamp == "2019-09-24T17:21:28.787+02:00"
     assert event.file == "file.mxf"
     assert event.media_id == "media id"
+    assert event.s3_bucket == "bucket"
 
 
 @pytest.mark.parametrize("filename", INVALID_ESSENCE_LINKED_EVENTS)
