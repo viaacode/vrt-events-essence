@@ -3,5 +3,5 @@
   <ns2:timestamp>2019-09-24T17:21:28.787+02:00</ns2:timestamp>
   <ns2:file>file.mxf</ns2:file>
   <ns2:mediaId>media id</ns2:mediaId>
-  <ns2:s3bucket>s3_bucket</ns2:s3bucket>
+  <ns2:s3bucket>original-video</ns2:s3bucket>
 </ns2:essenceLinkedEvent>

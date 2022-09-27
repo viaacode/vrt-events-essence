@@ -265,6 +265,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         event = handler._parse_event(event)
         assert event is not None
         assert event.file == "file.mxf"
+        assert event.s3_bucket == "s3_bucket"
 
     @patch.object(EssenceEvent, '__init__', side_effect=InvalidEventException("error"))
     def test_parse_event_invalid(self, init_mock, handler):
@@ -319,6 +320,17 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert isinstance(datetime.strptime(dt_string, "%Y-%m-%dT%H:%M:%S.%f%z"), datetime)
         assert handler.rabbit_client.send_message.call_args[0][0] == "xml"
         assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
+
+    @patch.object(EssenceLinkedHandler, "_get_fragment")
+    def test_orignal_video_bucket_skip(self, mock_get_fragment, handler, capfd):
+        event = load_resource("essenceLinkedEventOriginalVideo.xml")   
+
+        handler.handle_event(event)
+
+        assert handler.log.info.call_args_list[1][0][0] == "Skipped file.mxf because it arrived in the original-video bucket."
+
+        assert mock_get_fragment.call_count == 0
+
 
     def test_parse_umid(self, handler):
         object_id = "object id"
