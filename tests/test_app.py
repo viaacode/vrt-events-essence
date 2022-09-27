@@ -322,7 +322,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
 
     @patch.object(EssenceLinkedHandler, "_get_fragment")
-    def test_orignal_video_bucket_skip(self, mock_get_fragment, handler, capfd):
+    def test_orignal_video_bucket_skip(self, mock_get_fragment, handler):
         event = load_resource("essenceLinkedEventOriginalVideo.xml")   
 
         handler.handle_event(event)
