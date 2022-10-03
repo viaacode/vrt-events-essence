@@ -11,6 +11,7 @@ XPATHS = {
     "timestamp": "./p:timestamp",
     "file": "./p:file",
     "media_id": "./p:mediaId",
+    "s3_bucket":"./p:s3bucket"
 }
 
 
@@ -69,6 +70,7 @@ class EssenceLinkedEvent(EssenceEvent):
     def __init__(self, xml):
         super().__init__(xml)
         self.file = self._get_xpath_from_event(XPATHS["file"])
+        self.s3_bucket = self._get_xpath_from_event(XPATHS["s3_bucket"])
 
 
 class EssenceUnlinkedEvent(EssenceEvent):
