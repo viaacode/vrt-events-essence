@@ -8,7 +8,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 from lxml import etree
-from requests.exceptions import HTTPError, RequestException
+from requests.exceptions import RequestException
+from mediahaven.mediahaven import MediaHavenException
 
 from app.app import (
     EssenceLinkedHandler,
@@ -23,20 +24,18 @@ from tests.resources.resources import load_resource, construct_filename
 
 
 @pytest.fixture
-def http_error():
-    response = MagicMock()
-    response.status_code = 400
-    response.text = "error"
-    return HTTPError(response=response)
+def media_haven_exception():
+    return MediaHavenException("error", status_code=400)
 
 
 class TestEventListener:
     @pytest.fixture
-    @patch('app.app.PIDService')
-    @patch('app.app.MediahavenClient')
-    @patch('app.app.RabbitClient')
-    def event_listener(self, rabbit_client, mh_client, pid_service):
-        """ Creates an event listener with mocked rabbit client, MH client and
+    @patch("app.app.PIDService")
+    @patch("app.app.MediaHaven")
+    @patch("app.app.ROPCGrant")
+    @patch("app.app.RabbitClient")
+    def event_listener(self, rabbit_client, ropc_grant, mh_client, pid_service):
+        """Creates an event listener with mocked rabbit client, MH client and
         PID Service.
         """
         return EventListener()
@@ -60,7 +59,7 @@ class TestEventListener:
         assert record.message == error_message
         assert record.error_id == error_id
 
-    @patch('time.sleep')
+    @patch("time.sleep")
     def test_handle_nack_exception_requeue(self, time_mock, event_listener, caplog):
         mock_channel = MagicMock()
         delivery_tag = 1
@@ -104,7 +103,6 @@ class TestEventListener:
         assert handler.mh_client == event_listener.mh_client
 
     def test_calculate_handler_object_deleted(self, event_listener):
-
         routing_key = "to.object_deleted_routing_key"
         event_listener.object_deleted_rk = "object_deleted_routing_key"
 
@@ -127,7 +125,7 @@ class TestEventListener:
         mock_method = MagicMock()
         mock_method.delivery_tag = 1
         mock_method.routing_key = routing_key
-        event = b'event'
+        event = b"event"
 
         event_listener.handle_message(mock_channel, mock_method, None, event)
 
@@ -146,15 +144,17 @@ class TestEventListener:
         assert mock_channel.basic_nack.call_count == 0
 
     @patch.object(EventListener, "_calculate_handler")
-    @patch.object(EventListener, '_handle_nack_exception', autospec=True)
-    def test_handle_message_nack(self, mock_nack, mock_calculate_handler, event_listener):
+    @patch.object(EventListener, "_handle_nack_exception", autospec=True)
+    def test_handle_message_nack(
+        self, mock_nack, mock_calculate_handler, event_listener
+    ):
         routing_key = "routing_key"
 
         mock_channel = MagicMock()
         mock_method = MagicMock()
         mock_method.delivery_tag = 1
         mock_method.routing_key = routing_key
-        event = b'event'
+        event = b"event"
 
         # Let the handler return a nack exception when handling the event
         handler_mock = mock_calculate_handler.return_value
@@ -179,52 +179,55 @@ class TestEventListener:
 
 
 class AbstractBaseHandler(ABC):
-    @pytest.mark.parametrize(
-        "actual_amount,expected_amount",
-        [(1, 1), (2, -1)]
-    )
+    @pytest.mark.parametrize("actual_amount,expected_amount", [(1, 1), (2, -1)])
     def test_get_fragment(self, actual_amount, expected_amount, handler):
         result_dict = {"TotalNrOfResults": actual_amount}
         mh_client_mock = handler.mh_client
-        mh_client_mock.get_fragment.return_value = result_dict
+        mh_client_mock.records.search.return_value = result_dict
 
         key_values = [("key", "value")]
         assert handler._get_fragment(key_values, expected_amount) == result_dict
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+        assert mh_client_mock.records.search.call_count == 1
+        assert mh_client_mock.records.search.call_args.kwargs == {
+            "q": handler._create_query(key_values)
+        }
 
     def test_get_fragment_nr_of_results_mismatch(self, handler):
         result_dict = {"TotalNrOfResults": 1}
         mh_client_mock = handler.mh_client
-        mh_client_mock.get_fragment.return_value = result_dict
+        mh_client_mock.records.search.return_value = result_dict
 
         key_values = [("key", "value")]
         with pytest.raises(NackException):
             handler._get_fragment(key_values, 2)
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+        assert mh_client_mock.records.search.call_count == 1
+        assert mh_client_mock.records.search.call_args.kwargs == {
+            "q": handler._create_query(key_values)
+        }
 
-    def test_get_fragment_http_error(self, http_error, handler):
+    def test_get_fragment_media_haven_exception(self, media_haven_exception, handler):
         mh_client_mock = handler.mh_client
-        # Raise a HTTP Error when calling method
-        handler.mh_client.get_fragment.side_effect = http_error
+        # Raise a MediaHavenException when calling method
+        handler.mh_client.records.search.side_effect = media_haven_exception
 
         key_values = [("key", "value")]
         with pytest.raises(NackException) as error:
             handler._get_fragment(key_values)
         assert not error.value.requeue
-        assert error.value.kwargs["error"] == http_error
-        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["error"] == media_haven_exception
+        assert error.value.kwargs["error_response"] == str(media_haven_exception)
         assert error.value.kwargs["query_key_values"] == key_values
 
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+        assert mh_client_mock.records.search.call_count == 1
+        assert mh_client_mock.records.search.call_args.kwargs == {
+            "q": handler._create_query(key_values)
+        }
 
     def test_get_fragment_request_exception(self, handler):
         mh_client_mock = handler.mh_client
-        # Raise a HTTP Error when calling method
+        # Raise a MediaHavenException when calling method
         request_exception = RequestException()
-        handler.mh_client.get_fragment.side_effect = request_exception
+        handler.mh_client.records.search.side_effect = request_exception
 
         key_values = [("key", "value")]
         with pytest.raises(NackException) as error:
@@ -232,17 +235,21 @@ class AbstractBaseHandler(ABC):
         assert error.value.requeue
         assert error.value.kwargs["error"] == request_exception
 
-        assert mh_client_mock.get_fragment.call_count == 1
-        assert mh_client_mock.get_fragment.call_args[0][0] == key_values
+        assert mh_client_mock.records.search.call_count == 1
+        assert mh_client_mock.records.search.call_args.kwargs == {
+            "q": handler._create_query(key_values)
+        }
 
 
 class TestEventLinkedHandler(AbstractBaseHandler):
     @pytest.fixture
     def handler(self):
-        """ Creates an essence linked handler with a mocked logger, rabbit client,
+        """Creates an essence linked handler with a mocked logger, rabbit client,
         MH client and PID Service.
         """
-        return EssenceLinkedHandler(MagicMock(), MagicMock(), MagicMock(), "routing_key", MagicMock())
+        return EssenceLinkedHandler(
+            MagicMock(), MagicMock(), MagicMock(), "routing_key", MagicMock()
+        )
 
     def test_generate_get_metadata_request_xml(self, handler):
         # Create getMetadataRequest XML
@@ -267,7 +274,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert event.file == "file.mxf"
         assert event.s3_bucket == "s3_bucket"
 
-    @patch.object(EssenceEvent, '__init__', side_effect=InvalidEventException("error"))
+    @patch.object(EssenceEvent, "__init__", side_effect=InvalidEventException("error"))
     def test_parse_event_invalid(self, init_mock, handler):
         with pytest.raises(NackException) as error:
             handler._parse_event("")
@@ -282,7 +289,9 @@ class TestEventLinkedHandler(AbstractBaseHandler):
     @patch.object(EssenceLinkedHandler, "_create_fragment")
     @patch.object(EssenceLinkedHandler, "_parse_fragment_id")
     @patch.object(EssenceLinkedHandler, "_add_metadata", return_value=True)
-    @patch.object(EssenceLinkedHandler, "_generate_get_metadata_request_xml", return_value="xml")
+    @patch.object(
+        EssenceLinkedHandler, "_generate_get_metadata_request_xml", return_value="xml"
+    )
     def test_handle_event_update(
         self,
         mock_generate_get_metadata_request_xml,
@@ -294,7 +303,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         mock_parse_umid,
         mock_get_fragment,
         mock_parse_event,
-        handler
+        handler,
     ):
         handler.handle_event("irrelevant")
         assert mock_parse_event.call_count == 1
@@ -317,20 +326,24 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert mock_generate_get_metadata_request_xml.call_count == 1
         assert handler.rabbit_client.send_message.call_count == 1
         dt_string = mock_generate_get_metadata_request_xml.call_args[0][0]
-        assert isinstance(datetime.strptime(dt_string, "%Y-%m-%dT%H:%M:%S.%f%z"), datetime)
+        assert isinstance(
+            datetime.strptime(dt_string, "%Y-%m-%dT%H:%M:%S.%f%z"), datetime
+        )
         assert handler.rabbit_client.send_message.call_args[0][0] == "xml"
         assert handler.rabbit_client.send_message.call_args[0][1] == handler.routing_key
 
     @patch.object(EssenceLinkedHandler, "_get_fragment")
     def test_orignal_video_bucket_skip(self, mock_get_fragment, handler):
-        event = load_resource("essenceLinkedEventOriginalVideo.xml")   
+        event = load_resource("essenceLinkedEventOriginalVideo.xml")
 
         handler.handle_event(event)
 
-        assert handler.log.info.call_args_list[1][0][0] == "Skipped file.mxf because it arrived in the original-video bucket."
+        assert (
+            handler.log.info.call_args_list[1][0][0]
+            == "Skipped file.mxf because it arrived in the original-video bucket."
+        )
 
         assert mock_get_fragment.call_count == 0
-
 
     def test_parse_umid(self, handler):
         object_id = "object id"
@@ -348,8 +361,8 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         "fragment, ie_type",
         [
             ({"MediaDataList": [{"Administrative": {"Type": "video"}}]}, "video"),
-            ({"wrong": "video"}, None)
-        ]
+            ({"wrong": "video"}, None),
+        ],
     )
     def test_parse_ie_type(self, handler, fragment, ie_type):
         assert handler._parse_ie_type(fragment) == ie_type
@@ -373,41 +386,43 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         fragment_id = "fragment id"
         umid = "umid"
         fragment_response = {"fragment_id": fragment_id}
-        mh_client_mock.create_fragment.return_value = fragment_response
+        mh_client_mock.records.create_fragment.return_value = fragment_response
 
         assert handler._create_fragment(umid) == fragment_response
-        assert mh_client_mock.create_fragment.call_count == 1
-        assert mh_client_mock.create_fragment.call_args[0][0] == umid
+        assert mh_client_mock.records.create_fragment.call_count == 1
+        assert mh_client_mock.records.create_fragment.call_args[0][0] == umid
 
-    def test_create_fragment_http_error(self, http_error, handler):
+    def test_create_fragment_media_haven_exception(
+        self, media_haven_exception, handler
+    ):
         mh_client_mock = handler.mh_client
         umid = "umid"
 
-        # Raise a HTTP Error when calling method
-        mh_client_mock.create_fragment.side_effect = http_error
+        # Raise a MediaHavenException when calling method
+        mh_client_mock.records.create_fragment.side_effect = media_haven_exception
 
         with pytest.raises(NackException) as error:
             handler._create_fragment(umid)
         assert not error.value.requeue
-        assert error.value.kwargs["error"] == http_error
-        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["error"] == media_haven_exception
+        assert error.value.kwargs["error_response"] == str(media_haven_exception)
         assert error.value.kwargs["umid"] == umid
 
-        assert mh_client_mock.create_fragment.call_count == 1
-        assert mh_client_mock.create_fragment.call_args[0][0] == umid
+        assert mh_client_mock.records.create_fragment.call_count == 1
+        assert mh_client_mock.records.create_fragment.call_args[0][0] == umid
 
     def test_create_fragment_requests_exception(self, handler):
         mh_client_mock = handler.mh_client
         umid = "umid"
 
-        # Raise a HTTP Error when calling method
-        mh_client_mock.create_fragment.side_effect = RequestException
+        # Raise a MediaHavenException when calling method
+        mh_client_mock.records.create_fragment.side_effect = RequestException
 
         with pytest.raises(NackException) as error:
             handler._create_fragment(umid)
         assert error.value.requeue
-        assert mh_client_mock.create_fragment.call_count == 1
-        assert mh_client_mock.create_fragment.call_args[0][0] == umid
+        assert mh_client_mock.records.create_fragment.call_count == 1
+        assert mh_client_mock.records.create_fragment.call_args[0][0] == umid
 
     def test_parse_fragment_id(self, handler):
         fragment_id = "fragment id"
@@ -421,47 +436,67 @@ class TestEventLinkedHandler(AbstractBaseHandler):
             handler._parse_fragment_id(response)
         assert not error.value.requeue
 
-    def test_add_metadata(self, handler):
+    def test_construct_metadata(self, handler):
+        media_id = "media id"
+        pid = "pid"
+        ie_type = "video"
+
+        sidecar = handler._construct_metadata(media_id, pid, ie_type)
+        assert (
+            sidecar
+            == "<?xml version='1.0' encoding='UTF-8'?>\n<mhs:Sidecar xmlns:mhs=\"https://zeticon.mediahaven.com/metadata/20.1/mhs/\" version=\"20.1\">\n  <mhs:Dynamic>\n    <dc_identifier_localid>media id</dc_identifier_localid>\n    <PID>pid</PID>\n    <dc_identifier_localids>\n      <MEDIA_ID>media id</MEDIA_ID>\n    </dc_identifier_localids>\n    <object_level>ie</object_level>\n    <object_use>archive_master</object_use>\n    <ie_type>video</ie_type>\n  </mhs:Dynamic>\n</mhs:Sidecar>\n"
+        )
+
+    @patch.object(EssenceLinkedHandler, "_construct_metadata")
+    def test_add_metadata(self, construct_metadata_mock, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
         pid = "pid"
         ie_type = "video"
 
+        construct_metadata_mock.return_value = "<metadata/>"
         # Return True, which means the action was successful
-        mh_client_mock.add_metadata_to_fragment.return_value = True
+        mh_client_mock.records.update.return_value = True
 
         assert handler._add_metadata(fragment_id, media_id, pid, ie_type) is None
-        assert mh_client_mock.add_metadata_to_fragment.call_count == 1
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][3] == ie_type
+        assert mh_client_mock.records.update.call_count == 1
+        assert mh_client_mock.records.update.call_args[0][0] == fragment_id
 
-    def test_add_metadata_http_error(self, http_error, handler):
+        assert mh_client_mock.records.update.call_args.kwargs == {
+            "metadata": "<metadata/>;type=application/xml",
+            "reason": "essenceLinked: add mediaID media id and PID pid to fragment",
+        }
+
+    @patch.object(EssenceLinkedHandler, "_construct_metadata")
+    def test_add_metadata_media_haven_exception(
+        self, construct_metadata_mock, media_haven_exception, handler
+    ):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         media_id = "media id"
         pid = "pid"
         ie_type = "video"
 
-        # Raise a HTTP Error when calling method
-        http_error.status_code = 400
-        mh_client_mock.add_metadata_to_fragment.side_effect = http_error
+        construct_metadata_mock.return_value = "<metadata/>"
+        # Raise a MediaHavenException when calling method
+        media_haven_exception.status_code = 400
+        mh_client_mock.records.update.side_effect = media_haven_exception
 
         with pytest.raises(NackException) as error:
             handler._add_metadata(fragment_id, media_id, pid, ie_type)
         assert not error.value.requeue
-        assert error.value.kwargs["error"] == http_error
-        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["error"] == media_haven_exception
+        assert error.value.kwargs["error_response"] == str(media_haven_exception)
         assert error.value.kwargs["fragment_id"] == fragment_id
         assert error.value.kwargs["media_id"] == media_id
 
-        assert mh_client_mock.add_metadata_to_fragment.call_count == 1
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][0] == fragment_id
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][1] == media_id
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][2] == pid
-        assert mh_client_mock.add_metadata_to_fragment.call_args[0][3] == ie_type
+        assert mh_client_mock.records.update.call_count == 1
+        assert mh_client_mock.records.update.call_args[0][0] == fragment_id
+        assert mh_client_mock.records.update.call_args.kwargs == {
+            "metadata": "<metadata/>;type=application/xml",
+            "reason": "essenceLinked: add mediaID media id and PID pid to fragment",
+        }
 
     def test_add_metadata_false(self, handler):
         mh_client_mock = handler.mh_client
@@ -470,7 +505,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         pid = "pid"
         ie_type = "video"
 
-        mh_client_mock.add_metadata_to_fragment.return_value = False
+        mh_client_mock.records.update.return_value = False
 
         with pytest.raises(NackException) as error:
             handler._add_metadata(fragment_id, media_id, pid, ie_type)
@@ -479,7 +514,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
 
 
 class AbstractTestDeleteFragmentHandler(AbstractBaseHandler):
-    @patch.object(EssenceEvent, '__init__', side_effect=InvalidEventException("error"))
+    @patch.object(EssenceEvent, "__init__", side_effect=InvalidEventException("error"))
     def test_parse_event_invalid(self, init_mock, handler):
         with pytest.raises(NackException) as error:
             handler._parse_event("")
@@ -491,47 +526,49 @@ class AbstractTestDeleteFragmentHandler(AbstractBaseHandler):
         fragment_id = "fragment id"
 
         # Return True, which means the action was successful
-        mh_client_mock.delete_fragment.return_value = True
+        mh_client_mock.records.delete.return_value = True
 
         assert handler._delete_fragment(fragment_id)
-        assert mh_client_mock.delete_fragment.call_count == 1
-        assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
+        assert mh_client_mock.records.delete.call_count == 1
+        assert mh_client_mock.records.delete.call_args[0][0] == fragment_id
 
-    def test_delete_fragment_http_error(self, http_error, handler):
+    def test_delete_fragment_media_haven_exception(
+        self, media_haven_exception, handler
+    ):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
 
-        # Raise a HTTP Error when calling method
-        mh_client_mock.delete_fragment.side_effect = http_error
+        # Raise a MediaHavenException when calling method
+        mh_client_mock.records.delete.side_effect = media_haven_exception
 
         with pytest.raises(NackException) as error:
             handler._delete_fragment(fragment_id)
         assert not error.value.requeue
-        assert error.value.kwargs["error"] == http_error
-        assert error.value.kwargs["error_response"] == http_error.response.text
+        assert error.value.kwargs["error"] == media_haven_exception
+        assert error.value.kwargs["error_response"] == str(media_haven_exception)
         assert error.value.kwargs["fragment_id"] == fragment_id
 
-        assert mh_client_mock.delete_fragment.call_count == 1
-        assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
+        assert mh_client_mock.records.delete.call_count == 1
+        assert mh_client_mock.records.delete.call_args[0][0] == fragment_id
 
     def test_delete_fragment_request_exception(self, handler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
 
-        # Raise a HTTP Error when calling method
-        mh_client_mock.delete_fragment.side_effect = RequestException
+        # Raise a MediaHavenException when calling method
+        mh_client_mock.records.delete.side_effect = RequestException
 
         with pytest.raises(NackException) as error:
             handler._delete_fragment(fragment_id)
         assert error.value.requeue
-        assert mh_client_mock.delete_fragment.call_count == 1
-        assert mh_client_mock.delete_fragment.call_args[0][0] == fragment_id
+        assert mh_client_mock.records.delete.call_count == 1
+        assert mh_client_mock.records.delete.call_args[0][0] == fragment_id
 
 
 class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
     @pytest.fixture
     def handler(self):
-        """ Creates an essence unlinked handler with a mocked logger and MH client """
+        """Creates an essence unlinked handler with a mocked logger and MH client"""
         return EssenceUnlinkedHandler(MagicMock(), MagicMock())
 
     def test_parse_event(self, handler):
@@ -541,18 +578,20 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
         assert event.media_id == "media id"
 
     @patch.object(EssenceUnlinkedHandler, "_parse_event")
-    @patch.object(EssenceUnlinkedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0})
+    @patch.object(
+        EssenceUnlinkedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0}
+    )
     @patch.object(EssenceUnlinkedHandler, "_parse_fragment_ids")
-    @patch.object(EssenceUnlinkedHandler, "_delete_fragment",  return_value=False)
+    @patch.object(EssenceUnlinkedHandler, "_delete_fragment", return_value=False)
     def test_handle_event_delete_false(
         self,
         mock_delete_fragment,
         mock_parse_fragment_ids,
         mock_get_fragment,
         mock_parse_event,
-        handler
+        handler,
     ):
-        """ If the delete fragment call to MH returns a status code in the 200 range
+        """If the delete fragment call to MH returns a status code in the 200 range
         but not a 204, it will be seen as unsuccessful. In this case it should
         stop the handling flow and send a nack to rabbit
         """
@@ -560,7 +599,11 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id), ],)
+        args = (
+            [
+                ("dc_identifier_localid", mock_parse_event().media_id),
+            ],
+        )
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
 
@@ -568,7 +611,7 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
 class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
     @pytest.fixture
     def handler(self):
-        """ Creates an object deleted handler with a mocked logger and MH client """
+        """Creates an object deleted handler with a mocked logger and MH client"""
         return ObjectDeletedHandler(MagicMock(), MagicMock())
 
     def test_parse_event(self, handler):
@@ -578,18 +621,20 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
         assert event.media_id == "media id"
 
     @patch.object(ObjectDeletedHandler, "_parse_event")
-    @patch.object(ObjectDeletedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0})
+    @patch.object(
+        ObjectDeletedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0}
+    )
     @patch.object(ObjectDeletedHandler, "_parse_fragment_ids")
-    @patch.object(ObjectDeletedHandler, "_delete_fragment",  return_value=False)
+    @patch.object(ObjectDeletedHandler, "_delete_fragment", return_value=False)
     def test_handle_event_delete_false(
         self,
         mock_delete_fragment,
         mock_parse_fragment_ids,
         mock_get_fragment,
         mock_parse_event,
-        handler
+        handler,
     ):
-        """ If the delete fragment call to MH returns a status code in the 200 range
+        """If the delete fragment call to MH returns a status code in the 200 range
         but not a 204, it will be seen as unsuccessful. In this case it should
         stop the handling flow and send a nack to rabbit
         """
@@ -597,7 +642,11 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
             handler.handle_event("irrelevant")
         assert not error.value.requeue
         assert mock_parse_event.call_count == 1
-        args = ([("dc_identifier_localid", mock_parse_event().media_id), ],)
+        args = (
+            [
+                ("dc_identifier_localid", mock_parse_event().media_id),
+            ],
+        )
         assert mock_get_fragment.call_args[0] == args
         assert mock_get_fragment.call_count == 1
 
