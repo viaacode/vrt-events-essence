@@ -10,6 +10,9 @@ import pytest
 from lxml import etree
 from requests.exceptions import RequestException
 from mediahaven.mediahaven import MediaHavenException
+from mediahaven.mocks.base_resource import (
+    MediaHavenPageObjectJSONMock,
+)
 
 from app.app import (
     EssenceLinkedHandler,
@@ -181,21 +184,21 @@ class TestEventListener:
 class AbstractBaseHandler(ABC):
     @pytest.mark.parametrize("actual_amount,expected_amount", [(1, 1), (2, -1)])
     def test_get_fragment(self, actual_amount, expected_amount, handler):
-        result_dict = {"TotalNrOfResults": actual_amount}
+        result = MediaHavenPageObjectJSONMock({}, total_nr_of_results=actual_amount)
         mh_client_mock = handler.mh_client
-        mh_client_mock.records.search.return_value = result_dict
+        mh_client_mock.records.search.return_value = result
 
         key_values = [("key", "value")]
-        assert handler._get_fragment(key_values, expected_amount) == result_dict
+        assert handler._get_fragment(key_values, expected_amount) == result
         assert mh_client_mock.records.search.call_count == 1
         assert mh_client_mock.records.search.call_args.kwargs == {
             "q": handler._create_query(key_values)
         }
 
     def test_get_fragment_nr_of_results_mismatch(self, handler):
-        result_dict = {"TotalNrOfResults": 1}
+        result = MediaHavenPageObjectJSONMock({}, total_nr_of_results=1)
         mh_client_mock = handler.mh_client
-        mh_client_mock.records.search.return_value = result_dict
+        mh_client_mock.records.search.return_value = result
 
         key_values = [("key", "value")]
         with pytest.raises(NackException):
@@ -347,25 +350,28 @@ class TestEventLinkedHandler(AbstractBaseHandler):
 
     def test_parse_umid(self, handler):
         object_id = "object id"
-        fragment = {"MediaDataList": [{"Internal": {"MediaObjectId": object_id}}]}
-        assert handler._parse_umid(fragment) == object_id
+        page = MediaHavenPageObjectJSONMock(
+            [{"Internal": {"MediaObjectId": object_id}}]
+        )
+        assert handler._parse_umid(page) == object_id
 
     def test_parse_umid_key_error(self, handler):
         object_id = "object id"
-        fragment = {"wrong": object_id}
+        page = MediaHavenPageObjectJSONMock([{"wrong": object_id}])
         with pytest.raises(NackException) as error:
-            handler._parse_umid(fragment)
+            handler._parse_umid(page)
         assert not error.value.requeue
 
     @pytest.mark.parametrize(
         "fragment, ie_type",
         [
-            ({"MediaDataList": [{"Administrative": {"Type": "video"}}]}, "video"),
+            ({"Administrative": {"Type": "video"}}, "video"),
             ({"wrong": "video"}, None),
         ],
     )
     def test_parse_ie_type(self, handler, fragment, ie_type):
-        assert handler._parse_ie_type(fragment) == ie_type
+        page = MediaHavenPageObjectJSONMock([fragment])
+        assert handler._parse_ie_type(page) == ie_type
 
     def test_get_pid(self, handler):
         pid_service_mock = handler.pid_service
@@ -385,24 +391,27 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         mh_client_mock = handler.mh_client
         fragment_id = "fragment id"
         umid = "umid"
+        title = "title"
         fragment_response = {"fragment_id": fragment_id}
         mh_client_mock.records.create_fragment.return_value = fragment_response
 
-        assert handler._create_fragment(umid) == fragment_response
+        assert handler._create_fragment(umid, title) == fragment_response
         assert mh_client_mock.records.create_fragment.call_count == 1
         assert mh_client_mock.records.create_fragment.call_args[0][0] == umid
+        assert mh_client_mock.records.create_fragment.call_args[0][1] == title
 
     def test_create_fragment_media_haven_exception(
         self, media_haven_exception, handler
     ):
         mh_client_mock = handler.mh_client
         umid = "umid"
+        title = "title"
 
         # Raise a MediaHavenException when calling method
         mh_client_mock.records.create_fragment.side_effect = media_haven_exception
 
         with pytest.raises(NackException) as error:
-            handler._create_fragment(umid)
+            handler._create_fragment(umid, title)
         assert not error.value.requeue
         assert error.value.kwargs["error"] == media_haven_exception
         assert error.value.kwargs["error_response"] == str(media_haven_exception)
@@ -410,19 +419,22 @@ class TestEventLinkedHandler(AbstractBaseHandler):
 
         assert mh_client_mock.records.create_fragment.call_count == 1
         assert mh_client_mock.records.create_fragment.call_args[0][0] == umid
+        assert mh_client_mock.records.create_fragment.call_args[0][1] == title
 
     def test_create_fragment_requests_exception(self, handler):
         mh_client_mock = handler.mh_client
         umid = "umid"
+        title = "title"
 
         # Raise a MediaHavenException when calling method
         mh_client_mock.records.create_fragment.side_effect = RequestException
 
         with pytest.raises(NackException) as error:
-            handler._create_fragment(umid)
+            handler._create_fragment(umid, title)
         assert error.value.requeue
         assert mh_client_mock.records.create_fragment.call_count == 1
         assert mh_client_mock.records.create_fragment.call_args[0][0] == umid
+        assert mh_client_mock.records.create_fragment.call_args[0][1] == title
 
     def test_parse_fragment_id(self, handler):
         fragment_id = "fragment id"
@@ -444,7 +456,7 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         sidecar = handler._construct_metadata(media_id, pid, ie_type)
         assert (
             sidecar
-            == "<?xml version='1.0' encoding='UTF-8'?>\n<mhs:Sidecar xmlns:mhs=\"https://zeticon.mediahaven.com/metadata/20.1/mhs/\" version=\"20.1\">\n  <mhs:Dynamic>\n    <dc_identifier_localid>media id</dc_identifier_localid>\n    <PID>pid</PID>\n    <dc_identifier_localids>\n      <MEDIA_ID>media id</MEDIA_ID>\n    </dc_identifier_localids>\n    <object_level>ie</object_level>\n    <object_use>archive_master</object_use>\n    <ie_type>video</ie_type>\n  </mhs:Dynamic>\n</mhs:Sidecar>\n"
+            == "<?xml version='1.0' encoding='UTF-8'?>\n<mhs:Sidecar xmlns:mhs=\"https://zeticon.mediahaven.com/metadata/20.1/mhs/\" version=\"20.1\"><mhs:Dynamic><dc_identifier_localid>media id</dc_identifier_localid><PID>pid</PID><dc_identifier_localids><MEDIA_ID>media id</MEDIA_ID></dc_identifier_localids><object_level>ie</object_level><object_use>archive_master</object_use><ie_type>video</ie_type></mhs:Dynamic></mhs:Sidecar>"
         )
 
     @patch.object(EssenceLinkedHandler, "_construct_metadata")
@@ -464,7 +476,8 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert mh_client_mock.records.update.call_args[0][0] == fragment_id
 
         assert mh_client_mock.records.update.call_args.kwargs == {
-            "metadata": "<metadata/>;type=application/xml",
+            "metadata": "<metadata/>",
+            "metadata_content_type": "application/xml",
             "reason": "essenceLinked: add mediaID media id and PID pid to fragment",
         }
 
@@ -494,7 +507,8 @@ class TestEventLinkedHandler(AbstractBaseHandler):
         assert mh_client_mock.records.update.call_count == 1
         assert mh_client_mock.records.update.call_args[0][0] == fragment_id
         assert mh_client_mock.records.update.call_args.kwargs == {
-            "metadata": "<metadata/>;type=application/xml",
+            "metadata": "<metadata/>",
+            "metadata_content_type": "application/xml",
             "reason": "essenceLinked: add mediaID media id and PID pid to fragment",
         }
 
@@ -579,14 +593,14 @@ class TestEventUnlinkedHandler(AbstractTestDeleteFragmentHandler):
 
     @patch.object(EssenceUnlinkedHandler, "_parse_event")
     @patch.object(
-        EssenceUnlinkedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0}
+        EssenceUnlinkedHandler,
+        "_get_fragment",
+        return_value=MediaHavenPageObjectJSONMock([{}], total_nr_of_results=0),
     )
-    @patch.object(EssenceUnlinkedHandler, "_parse_fragment_ids")
     @patch.object(EssenceUnlinkedHandler, "_delete_fragment", return_value=False)
     def test_handle_event_delete_false(
         self,
         mock_delete_fragment,
-        mock_parse_fragment_ids,
         mock_get_fragment,
         mock_parse_event,
         handler,
@@ -622,14 +636,14 @@ class TestObjectDeletedHandler(AbstractTestDeleteFragmentHandler):
 
     @patch.object(ObjectDeletedHandler, "_parse_event")
     @patch.object(
-        ObjectDeletedHandler, "_get_fragment", return_value={"TotalNrOfResults": 0}
+        ObjectDeletedHandler,
+        "_get_fragment",
+        return_value=MediaHavenPageObjectJSONMock([{}], total_nr_of_results=0),
     )
-    @patch.object(ObjectDeletedHandler, "_parse_fragment_ids")
     @patch.object(ObjectDeletedHandler, "_delete_fragment", return_value=False)
     def test_handle_event_delete_false(
         self,
         mock_delete_fragment,
-        mock_parse_fragment_ids,
         mock_get_fragment,
         mock_parse_event,
         handler,

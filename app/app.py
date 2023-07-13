@@ -22,7 +22,8 @@ from app.helpers.events_parser import (
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
 from mediahaven import MediaHaven
-from mediahaven.mediahaven import MediaHavenException
+from mediahaven.resources.base_resource import MediaHavenPageObject
+from mediahaven.mediahaven import MediaHavenException, ContentType
 from mediahaven.oauth2 import ROPCGrant, RequestTokenError
 from app.services.pid import PIDService
 
@@ -61,7 +62,7 @@ class BaseHandler(ABC):
 
     def _get_fragment(
         self, query_key_values: List[Tuple[str, object]], expected_amount: int = -1
-    ) -> dict:
+    ) -> MediaHavenPageObject:
         """Gets a fragment based on a query given a list of keys and values.
 
         Also checks if the actual amount of results is what we expect. If the expected
@@ -77,10 +78,10 @@ class BaseHandler(ABC):
         """
         try:
             self.log.debug(f"Retrieve fragment with {query_key_values}")
-            response_dict = self.mh_client.records.search(
+            response = self.mh_client.records.search(
                 q=self._create_query(query_key_values)
             )
-            number_of_results = response_dict["TotalNrOfResults"]
+            number_of_results = response.total_nr_of_results
             if expected_amount > -1 and number_of_results != expected_amount:
                 raise NackException(
                     f"Expected {expected_amount} result(s) with {query_key_values}, found {number_of_results} result(s)",
@@ -97,7 +98,7 @@ class BaseHandler(ABC):
             raise NackException(
                 "Unable to connect to MediaHaven", error=error, requeue=True
             )
-        return response_dict
+        return response
 
 
 class EssenceLinkedHandler(BaseHandler):
@@ -135,7 +136,7 @@ class EssenceLinkedHandler(BaseHandler):
         etree.SubElement(dynamic, "ie_type").text = ie_type
 
         return etree.tostring(
-            root, pretty_print=True, encoding="UTF-8", xml_declaration=True
+            root, pretty_print=False, encoding="UTF-8", xml_declaration=True
         ).decode("utf-8")
 
     def _generate_get_metadata_request_xml(
@@ -219,7 +220,9 @@ class EssenceLinkedHandler(BaseHandler):
         pid = self._get_pid()
 
         # Create fragment for main fragment
-        create_fragment_response = self._create_fragment(umid)
+        create_fragment_response = self._create_fragment(
+            umid, fragment[0].Descriptive.Title
+        )
 
         # Parse the fragmentId from the response of the newly created fragment.
         fragment_id = self._parse_fragment_id(create_fragment_response)
@@ -253,28 +256,30 @@ class EssenceLinkedHandler(BaseHandler):
             )
         return event
 
-    def _parse_umid(self, fragment: dict) -> str:
+    def _parse_umid(self, fragment: MediaHavenPageObject) -> str:
         try:
-            umid = fragment["MediaDataList"][0]["Internal"]["MediaObjectId"]
-        except KeyError as error:
+            umid = fragment[0].Internal.MediaObjectId
+        except AttributeError as error:
             raise NackException(
                 "MediaObjectId not found in the MediaHaven object",
                 error=error,
-                fragment=fragment,
+                fragment=fragment[0],
             )
         return umid
 
-    def _parse_ie_type(self, fragment: dict) -> str:
+    def _parse_ie_type(self, fragment: MediaHavenPageObject) -> str:
         try:
-            ie_type = fragment["MediaDataList"][0]["Administrative"]["Type"]
-        except KeyError:
+            ie_type = fragment[0].Administrative.Type
+        except AttributeError:
             return None
         return ie_type
 
-    def _create_fragment(self, umid: str) -> dict:
+    def _create_fragment(self, umid: str, title: str) -> dict:
         try:
             self.log.debug(f"Creating fragment for object with umid: {umid}")
-            create_fragment_response = self.mh_client.records.create_fragment(umid)
+            create_fragment_response = self.mh_client.records.create_fragment(
+                umid, title, start_frames=0, end_frames=0
+            )
         except MediaHavenException as error:
             raise NackException(
                 f"Unable to create a fragment for umid: {umid}",
@@ -346,7 +351,8 @@ class EssenceLinkedHandler(BaseHandler):
         try:
             result = self.mh_client.records.update(
                 fragment_id,
-                metadata=f"{sidecar};type=application/xml",
+                metadata=sidecar,
+                metadata_content_type=ContentType.XML.value,
                 reason=f"essenceLinked: add mediaID {media_id} and PID {pid} to fragment",
             )
         except MediaHavenException as error:
@@ -405,17 +411,16 @@ class DeleteFragmentHandler(BaseHandler):
         # Get all items for the media id (this will include the fragment + collaterals)
         response = self._get_fragment([("dc_identifier_localid", media_id)])
 
-        if not response["TotalNrOfResults"]:
+        if not response.total_nr_of_results:
             raise NackException(
                 f"No fragments found for media id: {media_id}",
                 media_id=media_id,
             )
 
-        # Get each item's fragment id in a list and raise an error if there are no results.
-        fragment_ids = self._parse_fragment_ids(response["MediaDataList"])
-
         # Delete the fragment for the fragment_id
-        for fragment_id in fragment_ids:
+        for record in response:
+            fragment_id = record.Internal.FragmentId
+
             self.log.debug(
                 f"Deleting fragment for object with fragment id: {fragment_id}",
                 fragment_id=fragment_id,
@@ -430,13 +435,8 @@ class DeleteFragmentHandler(BaseHandler):
                 )
 
         self.log.info(
-            f"Successfully deleted {len(fragment_ids)} item(s) with media id: {media_id}"
+            f"Successfully deleted {response.total_nr_of_results} item(s) with media id: {media_id}"
         )
-
-    def _parse_fragment_ids(self, items: List[dict]) -> List[str]:
-        fragment_ids = [item["Internal"]["FragmentId"] for item in items]
-
-        return fragment_ids
 
     def _delete_fragment(
         self, fragment_id: str, reason: str = "", event_type: str = ""
