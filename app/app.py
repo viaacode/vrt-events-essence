@@ -7,7 +7,8 @@ from datetime import datetime
 from typing import List, Tuple
 
 from pika.exceptions import AMQPConnectionError
-from requests.exceptions import HTTPError, RequestException
+from requests.exceptions import RequestException
+from lxml import etree
 
 from viaa.configuration import ConfigParser
 from viaa.observability import logging
@@ -20,14 +21,22 @@ from app.helpers.events_parser import (
 )
 from app.helpers.xml_builder_vrt import XMLBuilderVRT
 from app.services.rabbit import RabbitClient
-from app.services.mediahaven import MediahavenClient
+from mediahaven import MediaHaven
+from mediahaven.resources.base_resource import MediaHavenPageObject
+from mediahaven.mediahaven import MediaHavenException, ContentType
+from mediahaven.oauth2 import ROPCGrant, RequestTokenError
 from app.services.pid import PIDService
 
 
+NAMESPACE_MHS = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
+NSMAP = {"mhs": NAMESPACE_MHS}
+
+
 class NackException(Exception):
-    """ Exception raised when there is a situation in which handling
+    """Exception raised when there is a situation in which handling
     of the event should be stopped.
     """
+
     def __init__(self, message, requeue=False, **kwargs):
         self.message = message
         self.requeue = requeue
@@ -35,7 +44,8 @@ class NackException(Exception):
 
 
 class BaseHandler(ABC):
-    """ Abstract base class that will handle an incoming event """
+    """Abstract base class that will handle an incoming event"""
+
     def __init__(self):
         pass
 
@@ -47,8 +57,13 @@ class BaseHandler(ABC):
     def _parse_event(self, message: str) -> EssenceEvent:
         pass
 
-    def _get_fragment(self, query_key_values: List[Tuple[str, object]], expected_amount: int = -1) -> dict:
-        """ Gets a fragment based on a query given a list of keys and values.
+    def _create_query(self, query_key_values: List[Tuple[str, object]]):
+        return " ".join([f'+({k_v[0]}: "{k_v[1]}")' for k_v in query_key_values])
+
+    def _get_fragment(
+        self, query_key_values: List[Tuple[str, object]], expected_amount: int = -1
+    ) -> MediaHavenPageObject:
+        """Gets a fragment based on a query given a list of keys and values.
 
         Also checks if the actual amount of results is what we expect. If the expected
         amount is -1, the check will be skipped.
@@ -59,35 +74,36 @@ class BaseHandler(ABC):
         Raises:
             NackException:
                 If the expected amount is different than the actual amount.
-                When an HTTPError is returned when querying MH.
+                When an MediaHavenException is returned when querying MH.
         """
         try:
             self.log.debug(f"Retrieve fragment with {query_key_values}")
-            response_dict = self.mh_client.get_fragment(query_key_values)
-            number_of_results = response_dict["TotalNrOfResults"]
+            response = self.mh_client.records.search(
+                q=self._create_query(query_key_values)
+            )
+            number_of_results = response.total_nr_of_results
             if expected_amount > -1 and number_of_results != expected_amount:
                 raise NackException(
                     f"Expected {expected_amount} result(s) with {query_key_values}, found {number_of_results} result(s)",
                     query_key_values=query_key_values,
                 )
-        except HTTPError as error:
+        except MediaHavenException as error:
             raise NackException(
                 f"Unable to retrieve fragment for {query_key_values}",
                 error=error,
-                error_response=error.response.text,
+                error_response=str(error),
                 query_key_values=query_key_values,
             )
         except RequestException as error:
             raise NackException(
-                "Unable to connect to MediaHaven",
-                error=error,
-                requeue=True
+                "Unable to connect to MediaHaven", error=error, requeue=True
             )
-        return response_dict
+        return response
 
 
 class EssenceLinkedHandler(BaseHandler):
-    """ Class that will handle an incoming essence linked event """
+    """Class that will handle an incoming essence linked event"""
+
     def __init__(self, logger, mh_client, rabbit_client, routing_key, pid_service):
         self.log = logger
         self.mh_client = mh_client
@@ -95,8 +111,38 @@ class EssenceLinkedHandler(BaseHandler):
         self.routing_key = routing_key
         self.pid_service = pid_service
 
-    def _generate_get_metadata_request_xml(self, timestamp: datetime, correlation_id: str, media_id: str) -> str:
-        """ Generates an xml for the getMetaDataRequest event.
+    def _construct_metadata(self, media_id: str, pid: str, ie_type: str) -> str:
+        """Create the sidecar XML to upload the metadata.
+
+        Returns:
+            str -- The metadata sidecar XML.
+        """
+        root = etree.Element(f"{{{NAMESPACE_MHS}}}Sidecar", nsmap=NSMAP, version="20.1")
+        # /Dynamic
+        dynamic = etree.SubElement(root, f"{{{NAMESPACE_MHS}}}Dynamic")
+        # /Dynamic/dc_identifier_localid
+        etree.SubElement(dynamic, "dc_identifier_localid").text = media_id
+        # /Dynamic/PID
+        etree.SubElement(dynamic, "PID").text = pid
+        # /Dynamic/dc_identifier_localids
+        local_ids = etree.SubElement(dynamic, "dc_identifier_localids")
+        # /Dynamic/dc_identifier_localids/MEDIA_ID
+        etree.SubElement(local_ids, "MEDIA_ID").text = media_id
+        # /Dynamic/object_level
+        etree.SubElement(dynamic, "object_level").text = "ie"
+        # /Dynamic/object_use
+        etree.SubElement(dynamic, "object_use").text = "archive_master"
+        # /Dynamic/ie_type
+        etree.SubElement(dynamic, "ie_type").text = ie_type
+
+        return etree.tostring(
+            root, pretty_print=False, encoding="UTF-8", xml_declaration=True
+        ).decode("utf-8")
+
+    def _generate_get_metadata_request_xml(
+        self, timestamp: datetime, correlation_id: str, media_id: str
+    ) -> str:
+        """Generates an xml for the getMetaDataRequest event.
 
         This request is sent after successful handling of an essence
         linked event.
@@ -112,7 +158,7 @@ class EssenceLinkedHandler(BaseHandler):
         xml_data_dict = {
             "timestamp": timestamp,
             "correlationId": correlation_id,
-            "mediaId": media_id
+            "mediaId": media_id,
         }
 
         builder = XMLBuilderVRT()
@@ -148,14 +194,18 @@ class EssenceLinkedHandler(BaseHandler):
 
         # We do not handle original videos
         if event.s3_bucket == "original-video":
-            self.log.info(f"Skipped {event.file} because it arrived in the {event.s3_bucket} bucket.")
+            self.log.info(
+                f"Skipped {event.file} because it arrived in the {event.s3_bucket} bucket."
+            )
             return
 
         filename = event.file
         media_id = event.media_id
 
         # Get the main fragment
-        fragment = self._get_fragment([("s3_object_key", filename), ("IsFragment", 0)], 1)
+        fragment = self._get_fragment(
+            [("s3_object_key", filename), ("IsFragment", 0)], 1
+        )
 
         # Check if there are no fragments with the media ID
         self._get_fragment([("dc_identifier_localid", media_id)], 0)
@@ -170,7 +220,9 @@ class EssenceLinkedHandler(BaseHandler):
         pid = self._get_pid()
 
         # Create fragment for main fragment
-        create_fragment_response = self._create_fragment(umid)
+        create_fragment_response = self._create_fragment(
+            umid, fragment[0].Descriptive.Title
+        )
 
         # Parse the fragmentId from the response of the newly created fragment.
         fragment_id = self._parse_fragment_id(create_fragment_response)
@@ -180,7 +232,7 @@ class EssenceLinkedHandler(BaseHandler):
 
         # Build metadata request XML
         xml = self._generate_get_metadata_request_xml(
-            datetime.now().astimezone().isoformat(), #Local timezone-aware timestamp
+            datetime.now().astimezone().isoformat(),  # Local timezone-aware timestamp
             media_id,  # Correlation_id is the media_id
             media_id,
         )
@@ -190,7 +242,7 @@ class EssenceLinkedHandler(BaseHandler):
         self.log.info(
             f"getMetadataRequest sent for fragment id: {fragment_id}",
             fragment_id=fragment_id,
-            media_id=media_id
+            media_id=media_id,
         )
 
     def _parse_event(self, message: str) -> EssenceLinkedEvent:
@@ -204,33 +256,35 @@ class EssenceLinkedHandler(BaseHandler):
             )
         return event
 
-    def _parse_umid(self, fragment: dict) -> str:
+    def _parse_umid(self, fragment: MediaHavenPageObject) -> str:
         try:
-            umid = fragment["MediaDataList"][0]["Internal"]["MediaObjectId"]
-        except KeyError as error:
+            umid = fragment[0].Internal.MediaObjectId
+        except AttributeError as error:
             raise NackException(
                 "MediaObjectId not found in the MediaHaven object",
                 error=error,
-                fragment=fragment,
+                fragment=fragment[0],
             )
         return umid
 
-    def _parse_ie_type(self, fragment: dict) -> str:
+    def _parse_ie_type(self, fragment: MediaHavenPageObject) -> str:
         try:
-            ie_type = fragment["MediaDataList"][0]["Administrative"]["Type"]
-        except KeyError:
+            ie_type = fragment[0].Administrative.Type
+        except AttributeError:
             return None
         return ie_type
 
-    def _create_fragment(self, umid: str) -> dict:
+    def _create_fragment(self, umid: str, title: str) -> dict:
         try:
             self.log.debug(f"Creating fragment for object with umid: {umid}")
-            create_fragment_response = self.mh_client.create_fragment(umid)
-        except HTTPError as error:
+            create_fragment_response = self.mh_client.records.create_fragment(
+                umid, title, start_frames=0, end_frames=0
+            )
+        except MediaHavenException as error:
             raise NackException(
                 f"Unable to create a fragment for umid: {umid}",
                 error=error,
-                error_response=error.response.text,
+                error_response=str(error),
                 umid=umid,
             )
         except RequestException as error:
@@ -252,7 +306,7 @@ class EssenceLinkedHandler(BaseHandler):
         return fragment_id
 
     def _get_pid(self) -> str:
-        """ Fetches a PID from the PID service.
+        """Fetches a PID from the PID service.
 
         Raises:
             NackException -- If unable to get a PID
@@ -267,7 +321,7 @@ class EssenceLinkedHandler(BaseHandler):
         return pid
 
     def _add_metadata(self, fragment_id: str, media_id: str, pid: str, ie_type: str):
-        """ Adds the media ID, PID and information for DEEWEE as metadata to the fragment.
+        """Adds the media ID, PID and information for DEEWEE as metadata to the fragment.
 
         This method is called after getting a success back from MH when sending out
         a request creating the fragment. However with how MH works, it is possible
@@ -291,28 +345,44 @@ class EssenceLinkedHandler(BaseHandler):
             NackException -- When we were unable to add the metadata (see above).
         """
 
+        # Create the payload
+        sidecar = self._construct_metadata(media_id, pid, ie_type)
+
         try:
-            result = self.mh_client.add_metadata_to_fragment(fragment_id, media_id, pid, ie_type)
-        except HTTPError as error:
+            result = self.mh_client.records.update(
+                fragment_id,
+                metadata=sidecar,
+                metadata_content_type=ContentType.XML.value,
+                reason=f"essenceLinked: add mediaID {media_id} and PID {pid} to fragment",
+            )
+        except MediaHavenException as error:
             raise NackException(
-                f"Unable to add MediaID metadata for fragment_id: {fragment_id}",
+                f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
                 error=error,
-                error_response=error.response.text,
+                error_response=str(error),
                 fragment_id=fragment_id,
                 media_id=media_id,
+            )
+        except RequestException as error:
+            raise NackException(
+                "Unable to connect to MediaHaven",
+                error=error,
+                fragment_id=fragment_id,
+                requeue=True,
             )
         if not result:
             raise NackException(
                 f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
                 fragment_id=fragment_id,
-                media_id=media_id
+                media_id=media_id,
             )
 
 
 class DeleteFragmentHandler(BaseHandler):
-    """ Abstract class that will handle an incoming event that will result in deleting
+    """Abstract class that will handle an incoming event that will result in deleting
     a fragment. Possible events: EssenceUnlinkedEvent and ObjectDeletedEvent.
-     """
+    """
+
     def __init__(self, logger, mh_client):
         self.log = logger
         self.mh_client = mh_client
@@ -341,17 +411,16 @@ class DeleteFragmentHandler(BaseHandler):
         # Get all items for the media id (this will include the fragment + collaterals)
         response = self._get_fragment([("dc_identifier_localid", media_id)])
 
-        if not response["TotalNrOfResults"]:
+        if not response.total_nr_of_results:
             raise NackException(
                 f"No fragments found for media id: {media_id}",
                 media_id=media_id,
             )
 
-        # Get each item's fragment id in a list and raise an error if there are no results.
-        fragment_ids = self._parse_fragment_ids(response["MediaDataList"])
-
         # Delete the fragment for the fragment_id
-        for fragment_id in fragment_ids:
+        for record in response:
+            fragment_id = record.Internal.FragmentId
+
             self.log.debug(
                 f"Deleting fragment for object with fragment id: {fragment_id}",
                 fragment_id=fragment_id,
@@ -365,21 +434,20 @@ class DeleteFragmentHandler(BaseHandler):
                     media_id=media_id,
                 )
 
-        self.log.info(f"Successfully deleted {len(fragment_ids)} item(s) with media id: {media_id}")
+        self.log.info(
+            f"Successfully deleted {response.total_nr_of_results} item(s) with media id: {media_id}"
+        )
 
-    def _parse_fragment_ids(self, items: List[dict]) -> List[str]:
-        fragment_ids = [item["Internal"]["FragmentId"] for item in items]
-
-        return fragment_ids
-
-    def _delete_fragment(self, fragment_id: str, reason: str = "", event_type: str = "") -> bool:
+    def _delete_fragment(
+        self, fragment_id: str, reason: str = "", event_type: str = ""
+    ) -> bool:
         try:
-            result = self.mh_client.delete_fragment(fragment_id)
-        except HTTPError as error:
+            result = self.mh_client.records.delete(fragment_id)
+        except MediaHavenException as error:
             raise NackException(
                 f"Unable to delete a fragment for fragment_id: {fragment_id}",
                 error=error,
-                error_response=error.response.text,
+                error_response=str(error),
                 fragment_id=fragment_id,
             )
         except RequestException as error:
@@ -393,7 +461,8 @@ class DeleteFragmentHandler(BaseHandler):
 
 
 class EssenceUnlinkedHandler(DeleteFragmentHandler):
-    """ Class that will handle an incoming essence unlinked event """
+    """Class that will handle an incoming essence unlinked event"""
+
     def _parse_event(self, message: str) -> EssenceUnlinkedEvent:
         self.log.info(
             "Start handling essence unlinked event", essence_unlinked_event=message
@@ -410,7 +479,8 @@ class EssenceUnlinkedHandler(DeleteFragmentHandler):
 
 
 class ObjectDeletedHandler(DeleteFragmentHandler):
-    """ Class that will handle an incoming object deleted event """
+    """Class that will handle an incoming object deleted event"""
+
     def _parse_event(self, message: str) -> ObjectDeletedEvent:
         self.log.info(
             "Start handling object deleted event", object_deleted_event=message
@@ -427,7 +497,8 @@ class ObjectDeletedHandler(DeleteFragmentHandler):
 
 
 class UnknownRoutingKeyHandler:
-    """ Class that will handle an incoming event with an unknown routing key """
+    """Class that will handle an incoming event with an unknown routing key"""
+
     def __init__(self, routing_key: str):
         self.routing_key = routing_key
 
@@ -442,7 +513,23 @@ class EventListener:
         configParser = ConfigParser()
         self.config = configParser.app_cfg
         self.log = logging.get_logger(__name__, config=configParser)
-        self.mh_client = MediahavenClient(self.config)
+
+        grant = ROPCGrant(
+            self.config["mediahaven"]["host"],
+            self.config["mediahaven"]["client_id"],
+            self.config["mediahaven"]["client_secret"],
+        )
+        try:
+            grant.request_token(
+                self.config["mediahaven"]["username"],
+                self.config["mediahaven"]["password"],
+            )
+        except RequestTokenError as error:
+            self.log.error("Requesting MH token has failed.")
+            raise error
+
+        self.mh_client = MediaHaven(self.config["mediahaven"]["host"], grant)
+
         try:
             self.rabbit_client = RabbitClient()
         except AMQPConnectionError as error:
@@ -450,19 +537,21 @@ class EventListener:
             raise error
         self.pid_service = PIDService(self.config["pid-service"]["URL"])
         self.essence_linked_rk = self.config["rabbitmq"]["essence_linked_routing_key"]
-        self.essence_unlinked_rk = self.config["rabbitmq"]["essence_unlinked_routing_key"]
+        self.essence_unlinked_rk = self.config["rabbitmq"][
+            "essence_unlinked_routing_key"
+        ]
         self.object_deleted_rk = self.config["rabbitmq"]["object_deleted_routing_key"]
         self.get_metadata_rk = self.config["rabbitmq"]["get_metadata_routing_key"]
 
     def _handle_nack_exception(self, nack_exception, channel, delivery_tag):
-        """ Log an error and send a nack to rabbit """
+        """Log an error and send a nack to rabbit"""
         self.log.error(nack_exception.message, **nack_exception.kwargs)
         if nack_exception.requeue:
             time.sleep(10)
         channel.basic_nack(delivery_tag=delivery_tag, requeue=nack_exception.requeue)
 
     def _calculate_handler(self, routing_key: str):
-        """ Return the correct handler given the routing key """
+        """Return the correct handler given the routing key"""
         event_type = routing_key.split(".")[-1]
         if event_type == self.essence_linked_rk:
             return EssenceLinkedHandler(
@@ -470,7 +559,7 @@ class EventListener:
                 self.mh_client,
                 self.rabbit_client,
                 self.get_metadata_rk,
-                self.pid_service
+                self.pid_service,
             )
         if event_type == self.essence_unlinked_rk:
             return EssenceUnlinkedHandler(self.log, self.mh_client)
@@ -487,7 +576,8 @@ class EventListener:
         """
         routing_key = method.routing_key
         self.log.info(
-            f"Incoming message with routing key: {routing_key}", incoming_message=body,
+            f"Incoming message with routing key: {routing_key}",
+            incoming_message=body,
         )
         handler = self._calculate_handler(routing_key)
         try:

@@ -6,6 +6,8 @@ app:
       host: !ENV ${MEDIAHAVEN_HOST}
       username: !ENV ${MEDIAHAVEN_USERNAME}
       password: !ENV ${MEDIAHAVEN_PASSWORD}
+      client_id: !ENV ${MEDIAHAVEN_CLIENT_ID}
+      client_secret: !ENV ${MEDIAHAVEN_CLIENT_SECRET}
     rabbitmq:
       host: !ENV ${RABBITMQ_HOST}
       port: 5672

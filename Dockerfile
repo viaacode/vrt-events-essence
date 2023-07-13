@@ -1,4 +1,4 @@
-FROM python:3.7-slim
+FROM python:3.10-slim
 
 # This is the location where our files will go in the container.
 WORKDIR /app

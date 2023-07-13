@@ -1,4 +1,4 @@
 viaa-chassis==0.2.0rc1
-pika==1.1.0
-lxml==4.5.0
-requests==2.23.0
+pika==1.3.2
+lxml==4.9.2
+mediahaven==0.4.3
