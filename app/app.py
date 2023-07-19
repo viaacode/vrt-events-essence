@@ -26,6 +26,7 @@ from mediahaven.resources.base_resource import MediaHavenPageObject
 from mediahaven.mediahaven import MediaHavenException, ContentType
 from mediahaven.oauth2 import ROPCGrant, RequestTokenError
 from app.services.pid import PIDService
+from app.helpers.retry import retry, RetryException
 
 
 NAMESPACE_MHS = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
@@ -320,6 +321,28 @@ class EssenceLinkedHandler(BaseHandler):
             raise NackException("Unable to get a pid", requeue=True)
         return pid
 
+    @retry(RetryException)
+    def _add_metadata_to_fragment(
+        self, fragment_id: str, sidecar: str, media_id: str, pid: str
+    ) -> bool:
+        """Utility method for adding the metadata to a fragment.
+
+        Returns: True if successful."""
+        try:
+            return self.mh_client.records.update(
+                fragment_id,
+                metadata=sidecar,
+                metadata_content_type=ContentType.XML.value,
+                reason=f"essenceLinked: add mediaID {media_id} and PID {pid} to fragment",
+            )
+        except MediaHavenException as error:
+            if error.status_code in (403, 404):
+                raise RetryException(
+                    f"Unable to update metadata for fragment_id: {fragment_id} with status code: {error.status_code}",
+                )
+            else:
+                raise error
+
     def _add_metadata(self, fragment_id: str, media_id: str, pid: str, ie_type: str):
         """Adds the media ID, PID and information for DEEWEE as metadata to the fragment.
 
@@ -349,12 +372,7 @@ class EssenceLinkedHandler(BaseHandler):
         sidecar = self._construct_metadata(media_id, pid, ie_type)
 
         try:
-            result = self.mh_client.records.update(
-                fragment_id,
-                metadata=sidecar,
-                metadata_content_type=ContentType.XML.value,
-                reason=f"essenceLinked: add mediaID {media_id} and PID {pid} to fragment",
-            )
+            result = self._add_metadata_to_fragment(fragment_id, sidecar, media_id, pid)
         except MediaHavenException as error:
             raise NackException(
                 f"Unable to update the metadata for fragment id: {fragment_id} and media id: {media_id}",
