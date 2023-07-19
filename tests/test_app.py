@@ -24,6 +24,7 @@ from app.app import (
 )
 from app.helpers.events_parser import EssenceEvent, InvalidEventException
 from tests.resources.resources import load_resource, construct_filename
+from app.helpers.retry import NUMBER_OF_TRIES
 
 
 @pytest.fixture
@@ -511,6 +512,38 @@ class TestEventLinkedHandler(AbstractBaseHandler):
             "metadata_content_type": "application/xml",
             "reason": "essenceLinked: add mediaID media id and PID pid to fragment",
         }
+
+    @pytest.mark.parametrize(
+        "status, message",
+        [(404, "Resource cannot be found"), (403, "User has no access")],
+    )
+    @patch("time.sleep")
+    @patch.object(EssenceLinkedHandler, "_construct_metadata")
+    def test_add_metadata_media_haven_exception_retry(
+        self,
+        construct_metadata_mock,
+        sleep_mock,
+        status,
+        message,
+        media_haven_exception,
+        handler,
+    ):
+        mh_client_mock = handler.mh_client
+        fragment_id = "fragment id"
+        media_id = "media id"
+        pid = "pid"
+        ie_type = "video"
+
+        construct_metadata_mock.return_value = "<metadata/>"
+        # Raise a MediaHavenException when calling method
+        media_haven_exception.status_code = status
+        mh_client_mock.records.update.side_effect = media_haven_exception
+
+        with pytest.raises(NackException):
+            handler._add_metadata(fragment_id, media_id, pid, ie_type)
+
+        assert mh_client_mock.records.update.call_count == NUMBER_OF_TRIES
+        assert sleep_mock.call_count == NUMBER_OF_TRIES
 
     def test_add_metadata_false(self, handler):
         mh_client_mock = handler.mh_client
