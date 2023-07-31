@@ -7,6 +7,7 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 import pytest
+import logging
 from lxml import etree
 from requests.exceptions import RequestException
 from mediahaven.mediahaven import MediaHavenException
@@ -26,11 +27,9 @@ from app.helpers.events_parser import EssenceEvent, InvalidEventException
 from tests.resources.resources import load_resource, construct_filename
 from app.helpers.retry import NUMBER_OF_TRIES
 
-
 @pytest.fixture
 def media_haven_exception():
     return MediaHavenException("error", status_code=400)
-
 
 class TestEventListener:
     @pytest.fixture
@@ -180,7 +179,13 @@ class TestEventListener:
         assert mock_nack.call_args[0][1].message == "error"
         assert mock_nack.call_args[0][2] == mock_channel
         assert mock_nack.call_args[0][3] == 1
+    
+    def test_startup_logs(self, caplog,event_listener):
+        logger = logging.getLogger(__name__)
+        logger.info(event_listener.start())
 
+        # Check if startup message is logged
+        assert 'Waiting for' in (caplog.text)
 
 class AbstractBaseHandler(ABC):
     @pytest.mark.parametrize("actual_amount,expected_amount", [(1, 1), (2, -1)])
