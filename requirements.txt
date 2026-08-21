@@ -1,5 +1,5 @@
 lxml==6.1.2
 viaa-chassis==0.2.1
-requests==2.31.0
+requests==2.33.0
 pika==1.4.4
 mediahaven==0.8.1
