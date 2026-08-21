@@ -31,6 +31,7 @@ from app.helpers.retry import retry, RetryException
 
 NAMESPACE_MHS = "https://zeticon.mediahaven.com/metadata/20.1/mhs/"
 NSMAP = {"mhs": NAMESPACE_MHS}
+SLEEP_TIME = 0.7
 
 
 class NackException(Exception):
@@ -88,6 +89,7 @@ class BaseHandler(ABC):
                     f"Expected {expected_amount} result(s) with {query_key_values}, found {number_of_results} result(s)",
                     query_key_values=query_key_values,
                 )
+            time.sleep(SLEEP_TIME)
         except MediaHavenException as error:
             raise NackException(
                 f"Unable to retrieve fragment for {query_key_values}",
@@ -281,6 +283,7 @@ class EssenceLinkedHandler(BaseHandler):
             create_fragment_response = self.mh_client.records.create_fragment(
                 umid, title, start_frames=0, end_frames=0
             )
+            time.sleep(SLEEP_TIME)
         except MediaHavenException as error:
             raise NackException(
                 f"Unable to create a fragment for umid: {umid}",
@@ -335,6 +338,7 @@ class EssenceLinkedHandler(BaseHandler):
                 metadata_content_type=ContentType.XML.value,
                 reason=f"essenceLinked: add mediaID {media_id} and PID {pid} to fragment",
             )
+            time.sleep(SLEEP_TIME)
         except MediaHavenException as error:
             if error.status_code in (403, 404):
                 raise RetryException(
@@ -461,6 +465,7 @@ class DeleteFragmentHandler(BaseHandler):
     ) -> bool:
         try:
             result = self.mh_client.records.delete(fragment_id)
+            time.sleep(SLEEP_TIME)
         except MediaHavenException as error:
             raise NackException(
                 f"Unable to delete a fragment for fragment_id: {fragment_id}",
