@@ -1,0 +1,24 @@
+viaa:
+    logging:
+      level: DEBUG
+app:
+    mediahaven: 
+      host: !ENV ${MEDIAHAVEN_HOST}
+      username: !ENV ${MEDIAHAVEN_USERNAME}
+      password: !ENV ${MEDIAHAVEN_PASSWORD}
+    rabbitmq:
+      host: !ENV ${RABBITMQ_HOST}
+      port: 5672
+      username: !ENV ${RABBITMQ_USERNAME}
+      password: !ENV ${RABBITMQ_PASSWORD}
+      queue: !ENV ${RABBITMQ_QUEUE}
+      exchange: !ENV ${RABBITMQ_EXCHANGE}
+      essence_linked_routing_key: !ENV ${RABBITMQ_ESSENCE_LINKED_ROUTING_KEY}
+      essence_unlinked_routing_key: !ENV ${RABBITMQ_ESSENCE_UNLINKED_ROUTING_KEY}
+      object_deleted_routing_key: !ENV ${RABBITMQ_OBJECT_DELETED_ROUTING_KEY}
+      get_metadata_routing_key: !ENV ${RABBITMQ_GET_METADATA_ROUTING_KEY}
+      dead_letter_exchange: !ENV ${RABBITMQ_DEAD_LETTER_EXCHANGE}
+      exchange_type: topic
+      prefetch_count: !ENV ${RABBITMQ_PREFETCH_COUNT}
+    pid-service:
+      URL: !ENV ${PID_URL}
